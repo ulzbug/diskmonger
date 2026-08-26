@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tauri App</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div class="toolbar">
+      <form class="row" id="scan-form" style="flex-grow: 1;">
+        <span>Path:</span>
+        <input id="scan-path-input" placeholder="Enter a path to scan..." value="/home/francois/Documents"/>
+        <button type="button" id="browse-btn">...</button>
+        <button type="submit">Scan</button>
+      </form>
+      <div class="row" style="margin-left: 20px;">
+        <button type="button" id="zoom-out-btn">Zoom Out</button>
+        <button type="button" id="reset-zoom-btn">Reset</button>
+      </div>
+    </div>
+    <div id="treemap-container">
+      <canvas id="treemap-canvas"></canvas>
+      <div id="treemap-tooltip"></div>
+    </div>
+  </body>
+</html>
