@@ -7,7 +7,7 @@ This project is a complete rewrite from the ground up, built with a modern and p
 *   **[Rust](https://www.rust-lang.org/)** for the powerful and safe backend.
 *   **[TypeScript](https://www.typescriptlang.org/)** and **HTML5 Canvas** for the fluid and responsive user interface.
 
-The original C++ MFC source code for SpaceMonger can be found in the `legacy/` directory for historical and educational purposes. The official repository for the original SpaceMonger is available on GitHub: [**stsi/spacemonger**](https://github.com/stsi/spacemonger).
+The original C++ MFC source code for SpaceMonger can be found in the `legacy/` directory for historical and educational purposes. The official repository for the original SpaceMonger is available on GitHub: [**seanofw/spacemonger1**](https://github.com/seanofw/spacemonger1).
 
 ---
 
