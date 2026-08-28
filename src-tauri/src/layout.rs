@@ -1,83 +1,127 @@
 //! Ce module utilise la crate 'treemap' pour calculer la mise en page.
 
-use crate::scanner::FsEntry;
+use crate::scanner::{FsNode, FsFile};
+use std::path::Path;
 use treemap::{Rect, Mappable, TreemapLayout};
 
 #[derive(Debug, serde::Serialize, Clone)]
 pub struct Rectangle {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-    pub depth: u32,
-    pub path: String,
-    pub name: String,
-    pub is_directory: bool,
-    pub size: u64,
+    pub x: f64, pub y: f64, pub width: f64, pub height: f64,
+    pub depth: u32, pub path: String, pub name: String,
+    pub is_directory: bool, pub size: u64,
 }
 
-impl Mappable for FsEntry {
-    fn size(&self) -> f64 {
-        self.size as f64
-    }
-    fn bounds(&self) -> &Rect {
-        &self.bounds
-    }
-    fn set_bounds(&mut self, bounds: Rect) {
-        self.bounds = bounds;
-    }
+#[derive(Debug, serde::Serialize, Clone)]
+pub struct LayoutResult {
+    pub rectangles: Vec<Rectangle>,
+    pub total_items: usize,
+    pub total_size: u64,
 }
+
+struct LayoutEntry<'a> {
+    node: &'a mut FsNode,
+    bounds: Rect,
+}
+
+impl<'a> Mappable for LayoutEntry<'a> {
+    fn size(&self) -> f64 { self.node.size_in_clusters() as f64 }
+    fn bounds(&self) -> &Rect { &self.bounds }
+    fn set_bounds(&mut self, bounds: Rect) { self.bounds = bounds; }
+}
+
+const MIN_PIXEL_THRESHOLD: f64 = 5.0;
 
 fn generate_treemap_rects(
     rectangles: &mut Vec<Rectangle>,
-    items: &mut [FsEntry],
+    nodes: &mut [FsNode],
     bounds: Rect,
     depth: u32,
+    base_path: &Path,
+    threshold: u32,
+    cluster_size: u64,
 ) {
-    if items.is_empty() { return; }
+    if nodes.is_empty() || bounds.w < 1.0 || bounds.h < 1.0 { return; }
 
-    let layout = TreemapLayout::new();
-    layout.layout_items(items, bounds);
-    
-    for item in items {
-        let item_bounds = item.bounds();
+    let mut display_nodes: Vec<FsNode> = Vec::new();
+    let mut small_items_size_in_clusters: u32 = 0;
+
+    for node in nodes.iter_mut() {
+        let node_size = node.size_in_clusters();
+        if node_size < threshold {
+            small_items_size_in_clusters = small_items_size_in_clusters.saturating_add(node_size);
+        } else {
+            display_nodes.push(node.clone());
+        }
+    }
+
+    if small_items_size_in_clusters > 0 {
+        display_nodes.push(FsNode::File(FsFile {
+            name: "other-files-name".into(),
+            size_in_clusters: small_items_size_in_clusters,
+        }));
+    }
+
+    let mut layout_entries: Vec<LayoutEntry> = display_nodes.iter_mut().map(|node| {
+        LayoutEntry { node, bounds: Rect::new() }
+    }).collect();
+
+    let layout_engine = TreemapLayout::new();
+    layout_engine.layout_items(&mut layout_entries, bounds);
+
+    for mut entry in layout_entries {
+        let item_path = base_path.join(entry.node.name());
+
+        if entry.bounds.w < MIN_PIXEL_THRESHOLD || entry.bounds.h < MIN_PIXEL_THRESHOLD {
+            continue;
+        }
+
         rectangles.push(Rectangle {
-            x: item_bounds.x,
-            y: item_bounds.y,
-            width: item_bounds.w,
-            height: item_bounds.h,
+            x: entry.bounds.x, y: entry.bounds.y,
+            width: entry.bounds.w, height: entry.bounds.h,
             depth,
-            path: item.path.clone(),
-            name: item.name.clone(),
-            is_directory: item.is_directory,
-            size: item.size,
+            path: item_path.to_string_lossy().to_string(),
+            name: entry.node.name().to_string(),
+            is_directory: entry.node.is_directory(),
+            size: entry.node.size_in_clusters() as u64 * cluster_size,
         });
 
-        if item.is_directory && !item.children.is_empty() {
-            const HEADER_HEIGHT: f64 = 12.0; // En-tête pour le nom du dossier
-            const SIDE_PADDING: f64 = 4.0;   // Marge sur les côtés
-            const BOTTOM_PADDING: f64 = 4.0; // Marge en bas
+        if let FsNode::Dir(dir) = &mut entry.node {
+            if !dir.children.is_empty() {
+                const HEADER_HEIGHT: f64 = 12.0;
+                const SIDE_PADDING: f64 = 4.0;
+                const BOTTOM_PADDING: f64 = 4.0;
 
-            if item_bounds.w > (SIDE_PADDING * 2.0) && item_bounds.h > (HEADER_HEIGHT + BOTTOM_PADDING) {
-                let inner_bounds = Rect::from_points(
-                    item_bounds.x + SIDE_PADDING,
-                    item_bounds.y + HEADER_HEIGHT,
-                    item_bounds.w - (SIDE_PADDING * 2.0),
-                    item_bounds.h - HEADER_HEIGHT - BOTTOM_PADDING,
-                );
-                if inner_bounds.w > 1.0 && inner_bounds.h > 1.0 {
-                    generate_treemap_rects(rectangles, &mut item.children, inner_bounds, depth + 1);
+                if entry.bounds.w > (SIDE_PADDING * 2.0) && entry.bounds.h > (HEADER_HEIGHT + BOTTOM_PADDING) {
+                    let inner_bounds = Rect::from_points(
+                        entry.bounds.x + SIDE_PADDING,
+                        entry.bounds.y + HEADER_HEIGHT,
+                        entry.bounds.w - (SIDE_PADDING * 2.0),
+                        entry.bounds.h - HEADER_HEIGHT - BOTTOM_PADDING,
+                    );
+                    if inner_bounds.w > 1.0 && inner_bounds.h > 1.0 {
+                        generate_treemap_rects(rectangles, &mut dir.children, inner_bounds, depth + 1, &item_path, threshold, cluster_size);
+                    }
                 }
             }
         }
     }
 }
 
-pub fn calculate_layout(root: &mut FsEntry, width: f64, height: f64) -> Vec<Rectangle> {
+pub fn calculate_layout(root: &mut FsNode, width: f64, height: f64, cluster_size: u64) -> LayoutResult {
     let mut rectangles = Vec::new();
-    if root.is_directory {
+    let total_items = root.count_items().saturating_sub(1);
+
+    if let FsNode::Dir(dir) = root {
         let initial_bounds = Rect::from_points(0.0, 0.0, width, height);
-        generate_treemap_rects(&mut rectangles, &mut root.children, initial_bounds, 0);
+        let root_path = Path::new(dir.name.as_ref());
+        let threshold = (dir.size_in_clusters as f64 * 0.0002) as u32;
+
+        let total_size = dir.size_in_clusters as u64 * cluster_size;
+
+        generate_treemap_rects(&mut rectangles, &mut dir.children, initial_bounds, 0, root_path, threshold, cluster_size);
+
+        LayoutResult { rectangles, total_items, total_size }
+    } else {
+        LayoutResult { rectangles, total_items: 1, total_size: root.size_in_clusters() as u64 * cluster_size }
     }
-    rectangles
 }

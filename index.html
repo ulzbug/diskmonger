@@ -11,14 +11,14 @@
   <body>
     <div class="toolbar">
       <form class="row" id="scan-form" style="flex-grow: 1;">
-        <span>Path:</span>
-        <input id="scan-path-input" placeholder="Enter a path to scan..." value="/home/francois/Documents"/>
-        <button type="button" id="browse-btn">...</button>
-        <button type="submit">Scan</button>
+        <span id="path-label"></span>
+        <input id="scan-path-input" />
+        <button type="button" id="browse-btn"></button>
+        <button type="submit" id="scan-btn"></button>
       </form>
       <div class="row" style="margin-left: 20px;">
-        <button type="button" id="zoom-out-btn">Zoom Out</button>
-        <button type="button" id="reset-zoom-btn">Reset</button>
+        <button type="button" id="zoom-out-btn"></button>
+        <button type="button" id="reset-zoom-btn"></button>
       </div>
     </div>
     <div id="treemap-container">

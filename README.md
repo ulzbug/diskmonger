@@ -7,7 +7,7 @@ This project is a complete rewrite from the ground up, built with a modern and p
 *   **[Rust](https://www.rust-lang.org/)** for the powerful and safe backend.
 *   **[TypeScript](https://www.typescriptlang.org/)** and **HTML5 Canvas** for the fluid and responsive user interface.
 
-The original C++ MFC source code for SpaceMonger can be found in the `legacy/` directory for historical and educational purposes. The official repository for the original SpaceMonger is available on GitHub: [**seanofw/spacemonger1**](https://github.com/seanofw/spacemonger1).
+The original C++ MFC source code for SpaceMonger is available on GitHub in the official repository : [**seanofw/spacemonger1**](https://github.com/seanofw/spacemonger1).
 
 ---
 
@@ -23,8 +23,6 @@ The original C++ MFC source code for SpaceMonger can be found in the `legacy/` d
     *   **Single-click** to select an item and display a detailed tooltip with its name, full path, size, and type.
     *   "Zoom Out" button to logically navigate to the parent directory.
     *   "Reset" button to instantly return to the root of the scan.
-*   **Cross-Platform:** Built to run natively on **Windows, macOS, and Linux** from a single codebase.
-*   **Extremely Lightweight:** The final release build is a tiny executable (under 5MB on Linux), a stark contrast to bloated web-based Electron apps.
 *   **Modern UI:** A clean, compact, and dark-themed UI that gets out of your way.
 
 ---

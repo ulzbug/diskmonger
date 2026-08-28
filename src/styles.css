@@ -49,6 +49,7 @@ body {
   border: 1px solid #555;
   border-radius: 3px;
   background-color: #3e3e3e;
+  color: #f6f6f6; /* Forcer le texte en clair */
   cursor: pointer;
   font-size: 13px;
 }

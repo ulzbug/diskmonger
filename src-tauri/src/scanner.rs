@@ -1,29 +1,68 @@
 //! Ce module contiendra la logique de scan du système de fichiers.
 
 use serde::{Serialize, Deserialize};
+use std::sync::{Arc, Mutex};
 use std::fs;
 use std::path::Path;
 use tauri::{Window, Emitter};
-use treemap::Rect;
 
-const SMALL_FILE_THRESHOLD_RATIO: f64 = 0.005; // 0.5%
-
-// --- Structures de Données ---
+pub const MAX_RECURSION_DEPTH: u32 = 64;
 
 #[derive(Clone, serde::Serialize)]
-struct ScanProgressPayload {
-  path: String,
+pub struct ScanProgressPayload {
+  pub path: String,
+  pub files: u64,
+  pub dirs: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct FsEntry {
-    pub name: String,
-    pub path: String,
-    pub size: u64,
-    pub is_directory: bool,
-    pub children: Vec<FsEntry>,
-    #[serde(skip)]
-    pub bounds: Rect,
+pub struct FsFile {
+    pub name: Box<str>,
+    pub size_in_clusters: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct FsDir {
+    pub name: Box<str>,
+    pub size_in_clusters: u32,
+    pub children: Vec<FsNode>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum FsNode {
+    File(FsFile),
+    Dir(FsDir),
+}
+
+impl FsNode {
+    pub fn size_in_clusters(&self) -> u32 {
+        match self {
+            FsNode::File(f) => f.size_in_clusters,
+            FsNode::Dir(d) => d.size_in_clusters,
+        }
+    }
+    pub fn name(&self) -> &str {
+        match self {
+            FsNode::File(f) => &f.name,
+            FsNode::Dir(d) => &d.name,
+        }
+    }
+    pub fn is_directory(&self) -> bool {
+        matches!(self, FsNode::Dir(_))
+    }
+    // Compter récursivement tous les éléments réels du dossier
+    pub fn count_items(&self) -> usize {
+        match self {
+            FsNode::File(_) => 1,
+            FsNode::Dir(dir) => {
+                let mut count = 1; // On compte le dossier lui-même
+                for child in &dir.children {
+                    count += child.count_items();
+                }
+                count
+            }
+        }
+    }
 }
 
 // --- Logique de Scan ---
@@ -35,10 +74,8 @@ fn get_cluster_size(path: &Path) -> u64 {
     let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     let mut sectors_per_cluster = 0;
     let mut bytes_per_sector = 0;
-    let mut number_of_free_clusters = 0;
-    let mut total_number_of_clusters = 0;
     unsafe {
-        if GetDiskFreeSpaceW(path_wide.as_ptr(), &mut sectors_per_cluster, &mut bytes_per_sector, &mut number_of_free_clusters, &mut total_number_of_clusters) != 0 {
+        if GetDiskFreeSpaceW(path_wide.as_ptr(), &mut sectors_per_cluster, &mut bytes_per_sector, &mut Default::default(), &mut Default::default()) != 0 {
             (sectors_per_cluster as u64) * (bytes_per_sector as u64)
         } else { 4096 }
     }
@@ -59,81 +96,85 @@ fn get_cluster_size(path: &Path) -> u64 {
 #[cfg(not(any(windows, unix)))]
 fn get_cluster_size(_path: &Path) -> u64 { 4096 }
 
-fn scan_recursive(path: &Path, cluster_size: u64, window: &Window) -> Result<FsEntry, String> {
-    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
-    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+fn scan_recursive(
+    path: &Path,
+    cluster_size: u64,
+    window: &Window,
+    progress: &Arc<Mutex<ScanProgressPayload>>,
+    depth: u32,
+) -> Result<FsNode, String> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Ok(FsNode::File(FsFile { name: "DEEPLY_NESTED_OR_LOOP".into(), size_in_clusters: 0 }));
+    }
+
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(e) => return Err(e.to_string()),
+    };
+
+    if metadata.file_type().is_symlink() {
+        return Ok(FsNode::File(FsFile {
+            name: path.file_name().unwrap_or_default().to_string_lossy().into(),
+            size_in_clusters: 0,
+        }));
+    }
+
+    let name: Box<str> = path.file_name().unwrap_or_default().to_string_lossy().into();
 
     if !metadata.is_dir() {
+        progress.lock().unwrap().files += 1;
         let logical_size = metadata.len();
-        let allocated_size = (logical_size + cluster_size - 1) / cluster_size * cluster_size;
-        return Ok(FsEntry {
-            name,
-            path: path.to_string_lossy().to_string(),
-            size: allocated_size,
-            is_directory: false,
-            children: vec![],
-            bounds: Rect::new(),
-        });
+        let size_in_clusters = ((logical_size + cluster_size - 1) / cluster_size) as u32;
+        return Ok(FsNode::File(FsFile { name, size_in_clusters }));
     }
     
-    let _ = window.emit("scan-progress", ScanProgressPayload { path: path.to_string_lossy().to_string() });
+    progress.lock().unwrap().dirs += 1;
+    if progress.lock().unwrap().dirs % 500 == 0 {
+        let mut progress_guard = progress.lock().unwrap();
+        progress_guard.path = path.to_string_lossy().to_string();
+        let _ = window.emit("scan-progress", progress_guard.clone());
+    }
 
     let mut children = Vec::new();
-    let mut total_size: u64 = 0;
-    match fs::read_dir(path) {
-        Ok(entries) => {
-            for entry_result in entries {
-                if let Ok(entry) = entry_result {
-                    if let Ok(child_entry) = scan_recursive(&entry.path(), cluster_size, window) {
-                        total_size += child_entry.size;
-                        children.push(child_entry);
-                    }
+    let mut total_size_in_clusters: u32 = 0;
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry_result in entries {
+            if let Ok(entry) = entry_result {
+                if let Ok(child_node) = scan_recursive(&entry.path(), cluster_size, window, progress, depth + 1) {
+                    total_size_in_clusters = total_size_in_clusters.saturating_add(child_node.size_in_clusters());
+                    children.push(child_node);
                 }
             }
         }
-        Err(e) => { return Err(e.to_string()); }
     }
 
-    // --- Regroupement des petits fichiers ---
-    let threshold = (total_size as f64 * SMALL_FILE_THRESHOLD_RATIO) as u64;
-    let mut processed_children: Vec<FsEntry> = Vec::new();
-    let mut small_files_size: u64 = 0;
-
-    for child in children {
-        if child.size < threshold && !child.is_directory {
-            small_files_size += child.size;
-        } else {
-            processed_children.push(child);
-        }
-    }
-
-    if small_files_size > 0 {
-        processed_children.push(FsEntry {
-            name: "[Autres fichiers]".to_string(),
-            path: path.to_string_lossy().to_string(),
-            size: small_files_size,
-            is_directory: false,
-            children: vec![],
-            bounds: Rect::new(),
-        });
-    }
-
-    Ok(FsEntry {
+    Ok(FsNode::Dir(FsDir {
         name,
-        path: path.to_string_lossy().to_string(),
-        size: total_size,
-        is_directory: true,
-        children: processed_children,
-        bounds: Rect::new(),
-    })
+        size_in_clusters: total_size_in_clusters,
+        children,
+    }))
 }
 
-pub fn scan_directory(path_str: &str, window: &Window) -> Result<FsEntry, String> {
+pub fn scan_directory(path_str: &str, window: &Window) -> Result<(FsNode, u64), String> {
     let path = Path::new(path_str);
     if !path.exists() {
         return Err(format!("Le chemin n'existe pas : {}", path_str));
     }
     let mount_point = path.ancestors().last().unwrap_or(path);
     let cluster_size = get_cluster_size(mount_point);
-    scan_recursive(path, cluster_size, window)
+    
+    let progress = Arc::new(Mutex::new(ScanProgressPayload {
+        path: path_str.to_string(),
+        files: 0,
+        dirs: 0,
+    }));
+    
+    let mut root_node = scan_recursive(path, cluster_size, window, &progress, 0)?;
+    
+    match &mut root_node {
+        FsNode::Dir(d) => d.name = path_str.to_string().into(),
+        FsNode::File(f) => f.name = path_str.to_string().into(),
+    }
+    
+    Ok((root_node, cluster_size))
 }
