@@ -61,6 +61,20 @@ function formatBytes(bytes: number, decimals = 2): string {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+/** Tronque un texte pour qu'il s'adapte à une largeur maximale dans le canvas, en ajoutant '...'. */
+function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+    const width = ctx.measureText(text).width;
+    if (width <= maxWidth) {
+        return text;
+    }
+    
+    let truncated = text;
+    while (truncated.length > 0 && ctx.measureText(truncated + '...').width > maxWidth) {
+        truncated = truncated.slice(0, -1);
+    }
+    return truncated ? truncated + '...' : '';
+}
+
 
 // --- GESTION DU RENDU DU CANVAS ---
 const COLORS = ['#FF7F7F', '#FFBF7F', '#FFFF00', '#7FFF7F', '#7FFFFF', '#BFBFFF', '#BFBFBF', '#FF7FFF'];
@@ -94,14 +108,19 @@ async function renderTreemap() {
             const displayName = tr(rect.name);
             if (rect.name == 'other-files-name') {
                 // Ne rien dessiner pour les groupes "[Autres...]"
-            } else if (rect.is_directory) {
-                treemapCtx.fillStyle = '#000000';
-                treemapCtx.font = "8px sans-serif";
-                treemapCtx.fillText(displayName, rect.x + 3, rect.y + 10);
             } else {
                 treemapCtx.fillStyle = '#000000';
                 treemapCtx.font = "8px sans-serif";
-                treemapCtx.fillText(displayName, rect.x + 4, rect.y + 10);
+
+                const padding = rect.is_directory ? 6 : 8; // Marge gauche + droite
+                const availableWidth = rect.width - padding;
+
+                const truncatedName = truncateText(treemapCtx, displayName, availableWidth);
+
+                if (truncatedName) {
+                    const textX = rect.x + (rect.is_directory ? 3 : 4);
+                    treemapCtx.fillText(truncatedName, textX, rect.y + 10);
+                }
             }
         }
     }
