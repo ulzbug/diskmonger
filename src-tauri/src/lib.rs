@@ -38,6 +38,9 @@ fn get_default_scan_path(app: tauri::AppHandle) -> Result<String, String> {
 /// Une fois terminé, met le résultat en cache et émet un événement `scan-complete` au frontend.
 #[tauri::command]
 fn scan(path: String, window: tauri::Window, cache: State<ScanCache>) {
+    // Réinitialiser le flag d'annulation avant le scan
+    scanner::CANCEL_SCAN.store(false, std::sync::atomic::Ordering::SeqCst);
+
     let cache_clone = Arc::clone(&cache.0);
     thread::Builder::new()
         .name("scanner-thread".to_string())
@@ -45,11 +48,22 @@ fn scan(path: String, window: tauri::Window, cache: State<ScanCache>) {
         .spawn(move || {
             match scanner::scan_directory(&path, &window) {
                 Ok((entry, cluster_size)) => {
-                    *cache_clone.lock().unwrap() = Some((entry, cluster_size));
-                    let _ = window.emit("scan-complete", ());
+                    // Dernière vérification de sécurité : si l'utilisateur a annulé
+                    // PENDANT les dernières millisecondes du scan, on respecte son choix.
+                    if scanner::CANCEL_SCAN.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = window.emit("scan-cancelled", ());
+                    } else {
+                        *cache_clone.lock().unwrap() = Some((entry, cluster_size));
+                        let _ = window.emit("scan-complete", ());
+                    }
                 }
                 Err(e) => {
-                    let _ = window.emit("scan-error", e);
+                    // Si l'erreur est causée par une annulation volontaire
+                    if scanner::CANCEL_SCAN.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = window.emit("scan-cancelled", ());
+                    } else {
+                        let _ = window.emit("scan-error", e);
+                    }
                 }
             }
         })
@@ -99,6 +113,12 @@ async fn reveal_in_explorer(path: String) -> Result<(), String> {
     opener::reveal(&path).map_err(|e| e.to_string())
 }
 
+/// Signale au thread de scan de s'arrêter proprement de manière atomique.
+#[tauri::command]
+fn cancel_scan() {
+    scanner::CANCEL_SCAN.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Configure et lance l'application Tauri.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -112,7 +132,8 @@ pub fn run() {
             get_default_scan_path,
             get_locale,
             trash_item,
-            reveal_in_explorer
+            reveal_in_explorer,
+            cancel_scan
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

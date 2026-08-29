@@ -2,9 +2,13 @@
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::fs;
 use std::path::Path;
 use tauri::{Window, Emitter};
+
+// Flag global atomique pour l'annulation de l'analyse.
+pub static CANCEL_SCAN: AtomicBool = AtomicBool::new(false);
 
 // Importation nécessaire pour la détection du Device ID et de l'Inode sur Unix.
 #[cfg(unix)]
@@ -98,6 +102,11 @@ fn scan_recursive(
     _initial_device: u64,
     _seen_inodes: &mut HashSet<u64>, // Suivi des inodes pour les hard links
 ) -> Result<FsNode, String> {
+    // Vérifier l'annulation atomique
+    if CANCEL_SCAN.load(Ordering::SeqCst) {
+        return Err("Analyse annulée par l'utilisateur".to_string());
+    }
+
     if depth > MAX_RECURSION_DEPTH {
         return Ok(FsNode::File(FsFile { name: "DEEPLY_NESTED_OR_LOOP".into(), size_in_clusters: 0 }));
     }

@@ -142,6 +142,11 @@ async function performScan() {
         const path = scanPathInputEl.value;
         scanRootPath = path;
         hideTooltipAndDeselect();
+        
+        // Afficher le bouton d'annulation du scan
+        const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
+        if (cancelBtn) cancelBtn.style.display = 'block';
+
         await showScanMessage("scanning-title", path);
         await appWindow.setTitle(tr('window-title-scanning'));
         invoke("scan", { path });
@@ -403,11 +408,45 @@ window.addEventListener("DOMContentLoaded", async () => {
         await appWindow.setTitle(tr('window-title-scanning'));
     });
     listen('scan-complete', async () => {
+        const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
+        if (cancelBtn) cancelBtn.style.display = 'none';
         await zoomIn([]); // Affiche la racine après un scan
+    });
+    listen('scan-cancelled', async () => {
+        const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
+        // Remise à neuf de l'application (canvas entièrement noir et vide)
+        currentRectangles = [];
+        scanRootPath = null;
+        currentPathSegments = [];
+        selectedRectangle = null;
+        hideTooltipAndDeselect();
+        await appWindow.setTitle(tr('window-title-default'));
+
+        if (treemapCanvasEl && treemapCtx) {
+            const { width, height } = treemapCanvasEl.getBoundingClientRect();
+            treemapCanvasEl.width = width;
+            treemapCanvasEl.height = height;
+            treemapCtx.clearRect(0, 0, width, height); // Canvas vide
+        }
     });
     listen('scan-error', async (event) => {
         console.error("Scan failed:", event.payload);
-        await showScanMessage("scan-failed-title", `${event.payload}`);
+        const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
+        // Réinitialiser tout l'état pour la sécurité
+        currentRectangles = [];
+        scanRootPath = null;
+        currentPathSegments = [];
+        selectedRectangle = null;
+        hideTooltipAndDeselect();
+        await appWindow.setTitle(tr('window-title-default'));
+
+        // S'il s'agit d'une vraie erreur, on affiche le message d'échec
+        const errorMsg = event.payload as string;
+        await showScanMessage("scan-failed-title", errorMsg);
     });
 
     // Chargement des traductions et initialisation de l'UI
@@ -422,6 +461,14 @@ window.addEventListener("DOMContentLoaded", async () => {
             i18nMessages = await response.json();
         }
     } catch (e) { console.error("Failed to load translations", e); }
+
+    const cancelBtn = document.querySelector('#cancel-scan-btn') as HTMLElement | null;
+    if (cancelBtn) {
+        cancelBtn.textContent = tr('cancel-scan-btn');
+        cancelBtn.addEventListener('click', () => {
+            invoke('cancel_scan');
+        });
+    }
 
     document.querySelector('#path-label')!.textContent = tr('path-label');
     document.querySelector('#browse-btn')!.textContent = tr('browse-btn');
