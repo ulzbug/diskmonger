@@ -7,8 +7,6 @@ use tauri::{Emitter, Manager, State};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-#[cfg(unix)]
-
 /// Le cache applicatif, accessible par toutes les commandes.
 /// Contient l'arbre de scan complet (`FsNode`) et la taille de cluster du système de fichiers.
 /// `Arc<Mutex<>>` est utilisé pour un accès thread-safe depuis les différentes commandes.
@@ -169,8 +167,6 @@ fn get_free_space(path: String) -> Result<u64, String> {
     }
 }
 
-use std::os::unix::fs::MetadataExt;
-
 #[tauri::command]
 fn is_mount_point(path: String) -> Result<bool, String> {
     #[cfg(windows)]
@@ -187,6 +183,7 @@ fn is_mount_point(path: String) -> Result<bool, String> {
 
     #[cfg(unix)]
     {
+        use std::os::unix::fs::MetadataExt;
         if path == "/" {
             return Ok(true);
         }

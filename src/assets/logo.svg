@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .block { stroke: #1e293b; stroke-width: 6; stroke-linejoin: round; rx: 4px; ry: 4px; }
+      .bg-red { fill: #e11d48; }
+      .bg-orange { fill: #f97316; }
+      .bg-amber { fill: #f59e0b; }
+      .bg-yellow { fill: #eab308; }
+      .bg-lime { fill: #84cc16; }
+      .bg-green { fill: #10b981; }
+      .bg-emerald { fill: #059669; }
+      .bg-teal { fill: #14b8a6; }
+      .bg-sky { fill: #0ea5e9; }
+      .bg-blue { fill: #3b82f6; }
+      .bg-indigo { fill: #6366f1; }
+    </style>
+  </defs>
+
+  <g transform="translate(46, 36) scale(1.35)">
+    <!-- Base / Colonne gauche du D -->
+    <rect class="block bg-red" x="40" y="40" width="90" height="90" rx="6" />
+
+    <rect class="block bg-amber" x="40" y="136" width="42" height="42" rx="4" />
+    <rect class="block bg-yellow" x="88" y="136" width="42" height="42" rx="4" />
+
+    <rect class="block bg-lime" x="40" y="184" width="42" height="42" rx="4" />
+    <rect class="block bg-green" x="88" y="184" width="42" height="42" rx="4" />
+
+    <rect class="block bg-red" x="40" y="232" width="90" height="42" rx="4" />
+    <rect class="block bg-orange" x="40" y="280" width="42" height="42" rx="4" />
+    <rect class="block bg-amber" x="88" y="280" width="42" height="20" rx="3" />
+    <rect class="block bg-red" x="88" y="304" width="42" height="18" rx="3" />
+
+    <!-- Boucle supérieure du D -->
+    <rect class="block bg-yellow" x="136" y="40" width="70" height="42" rx="4" />
+    <rect class="block bg-lime" x="136" y="88" width="32" height="42" rx="4" />
+    <rect class="block bg-emerald" x="174" y="88" width="32" height="18" rx="3" />
+    <rect class="block bg-green" x="174" y="110" width="32" height="20" rx="3" />
+
+    <!-- Courbe extérieure droite du D -->
+    <rect class="block bg-lime" x="212" y="65" width="42" height="40" rx="4" />
+    <rect class="block bg-green" x="212" y="111" width="42" height="30" rx="4" />
+    
+    <rect class="block bg-teal" x="212" y="147" width="56" height="20" rx="3" />
+    <rect class="block bg-emerald" x="212" y="173" width="56" height="42" rx="4" />
+    <rect class="block bg-teal" x="212" y="221" width="26" height="42" rx="4" />
+    <rect class="block bg-sky" x="244" y="221" width="24" height="42" rx="4" />
+    
+    <rect class="block bg-blue" x="212" y="269" width="42" height="30" rx="4" />
+
+    <!-- Boucle inférieure du D -->
+    <rect class="block bg-teal" x="136" y="232" width="60" height="42" rx="4" />
+    <rect class="block bg-blue" x="136" y="280" width="30" height="42" rx="4" />
+    <rect class="block bg-indigo" x="172" y="280" width="40" height="42" rx="4" />
+  </g>
+</svg>
