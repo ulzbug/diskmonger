@@ -1,23 +1,27 @@
+// Ce fichier est le point d'entrée principal de l'interface utilisateur.
+// Il gère l'état global, les interactions utilisateur, la communication avec le backend Rust,
+// et le rendu du treemap sur le canvas HTML5.
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-// --- GLOBAL STATE & SETUP ---
+// --- ÉTAT GLOBAL DE L'APPLICATION ---
 const appWindow = getCurrentWindow();
 let scanPathInputEl: HTMLInputElement | null;
 let treemapCanvasEl: HTMLCanvasElement | null;
 let treemapCtx: CanvasRenderingContext2D | null = null;
 let treemapTooltipEl: HTMLElement | null = null;
 
-let currentRectangles: Rectangle[] = [];
-let scanRootPath: string | null = null;
-let currentPathSegments: string[] = [];
-let selectedRectangle: Rectangle | null = null;
+let currentRectangles: Rectangle[] = []; // Les rectangles actuellement affichés
+let scanRootPath: string | null = null; // Le chemin absolu du scan initial
+let currentPathSegments: string[] = []; // Les segments du chemin de la vue actuelle, ex: ['Documents', 'Projets']
+let selectedRectangle: Rectangle | null = null; // Le rectangle actuellement sélectionné par un clic
 
-let i18nMessages: Record<string, string> = {};
+let i18nMessages: Record<string, string> = {}; // Cache pour les messages de traduction
 
-// --- INTERFACES ---
+// --- INTERFACES (Contrats de données avec Rust) ---
 interface Rectangle {
     x: number; y: number; width: number; height: number;
     depth: number; path: string; name: string;
@@ -30,11 +34,11 @@ interface LayoutResult {
     total_size: number;
 }
 
-// --- i18n HELPER ---
+// --- INTERNATIONALISATION (i18n) ---
+/** Traduit une clé en utilisant le cache `i18nMessages` chargé. */
 function tr(key: string, args?: Record<string, string | number>): string {
     let message = i18nMessages[key];
-    if (!message) return key;
-
+    if (!message) return key; // Retourne la clé si non trouvée
     if (args) {
         for (const [argKey, argValue] of Object.entries(args)) {
             message = message.replace(`{${argKey}}`, String(argValue));
@@ -43,7 +47,8 @@ function tr(key: string, args?: Record<string, string | number>): string {
     return message;
 }
 
-// --- HELPERS ---
+// --- FONCTIONS UTILITAIRES ---
+/** Formate un nombre d'octets en une chaîne lisible (Ko, Mo, Go...). */
 function formatBytes(bytes: number, decimals = 2): string {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -54,9 +59,10 @@ function formatBytes(bytes: number, decimals = 2): string {
 }
 
 
-// --- UI RENDERING ---
+// --- GESTION DU RENDU DU CANVAS ---
 const COLORS = ['#FF7F7F', '#FFBF7F', '#FFFF00', '#7FFF7F', '#7FFFFF', '#BFBFFF', '#BFBFBF', '#FF7FFF'];
 
+/** Redessine l'intégralité du treemap sur le canvas à partir de `currentRectangles`. */
 async function renderTreemap() {
     if (!treemapCanvasEl || !treemapCtx) return;
     const { width, height } = treemapCanvasEl.getBoundingClientRect();
@@ -65,22 +71,25 @@ async function renderTreemap() {
     treemapCtx.clearRect(0, 0, width, height);
 
     for (const rect of currentRectangles) {
-        if (!rect) continue; // Garde-fou
+        if (!rect) continue; // Sécurité
 
+        // Dessine le fond du rectangle avec une couleur basée sur sa profondeur
         treemapCtx.fillStyle = COLORS[rect.depth % COLORS.length];
         treemapCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
 
+        // Dessine la bordure (blanche si sélectionné, noire sinon)
         treemapCtx.strokeStyle = (selectedRectangle && rect.path === selectedRectangle.path) ? '#FFFFFF' : '#000000';
         treemapCtx.lineWidth = (selectedRectangle && rect.path === selectedRectangle.path) ? 2 : 1;
         treemapCtx.strokeRect(rect.x, rect.y, rect.width, rect.height);
 
+        // N'affiche le texte que si le rectangle est assez large
         if (rect.width >= 25) {
-            const displayName = rect.name === 'other-files-name' ? tr(rect.name) : rect.name;
-            if (rect.name === 'other-files-name') {
-                // Ne rien dessiner pour les "Autres fichiers", laisser le rectangle vide
+            const displayName = tr(rect.name);
+            if (rect.name.startsWith('[')) {
+                // Ne rien dessiner pour les groupes "[Autres...]"
             } else if (rect.is_directory) {
                 treemapCtx.fillStyle = '#000000';
-                treemapCtx.font = "9px sans-serif"; // normal
+                treemapCtx.font = "9px sans-serif";
                 treemapCtx.fillText(displayName, rect.x + 3, rect.y + 10);
             } else {
                 treemapCtx.fillStyle = '#000000';
@@ -91,6 +100,7 @@ async function renderTreemap() {
     }
 }
 
+/** Affiche un message (ex: "Scan en cours...") au centre du canvas. */
 async function showScanMessage(textKey: string, subtext: string = "", files: number = 0, dirs: number = 0) {
     if (!treemapCtx || !treemapCanvasEl) return;
     const { width, height } = treemapCanvasEl.getBoundingClientRect();
@@ -114,42 +124,51 @@ async function showScanMessage(textKey: string, subtext: string = "", files: num
     }
 }
 
+/** Cache l'infobulle, désélectionne le rectangle et redessine le canvas. */
+function hideTooltipAndDeselect() {
+    if (treemapTooltipEl) treemapTooltipEl.style.display = 'none';
+    if (selectedRectangle) {
+        selectedRectangle = null;
+        renderTreemap();
+    }
+}
 
-// --- EVENT HANDLERS ---
+
+// --- GESTIONNAIRES D'ÉVÉNEMENTS (Logique principale) ---
+
+/** Lance un nouveau scan du chemin spécifié dans l'input. */
 async function performScan() {
     if (scanPathInputEl && treemapCanvasEl) {
         const path = scanPathInputEl.value;
         scanRootPath = path;
-        currentPathSegments = [];
-        selectedRectangle = null;
-        if (treemapTooltipEl) treemapTooltipEl.style.display = 'none';
-
+        hideTooltipAndDeselect();
         await showScanMessage("scanning-title", path);
         await appWindow.setTitle(tr('window-title-scanning'));
         invoke("scan", { path });
     }
 }
 
+/** 
+ * Fonction centrale pour le zoom. Appelle le backend pour obtenir le nouveau layout
+ * et met à jour l'état de l'application (rectangles, titre, état des boutons).
+ */
 async function zoomIn(segments: string[]) {
-    console.log(`[zoomIn] Invoking zoom_in with segments:`, segments);
     if (!treemapCanvasEl) return;
     try {
-        selectedRectangle = null;
-        if (treemapTooltipEl) treemapTooltipEl.style.display = 'none';
-
-        currentPathSegments = segments;
+        hideTooltipAndDeselect();
+        currentPathSegments = segments; 
         const { width, height = 0 } = treemapCanvasEl.getBoundingClientRect();
         const result = await invoke<LayoutResult>("zoom_in", { segments, width, height });
         currentRectangles = result.rectangles;
 
-        const currentFullPath = [scanRootPath, ...segments].join('/');
-            
+        const currentFullPath = [scanRootPath, ...segments].join('/') || scanRootPath;
         await appWindow.setTitle(tr('window-title-viewing', {
             path: currentFullPath,
             size: formatBytes(result.total_size),
             items: result.total_items.toString()
         }));
-
+        
+        updateButtonStates();
         await renderTreemap();
     } catch (error) {
         console.error("Zoom failed:", error);
@@ -157,39 +176,23 @@ async function zoomIn(segments: string[]) {
     }
 }
 
+/** Gère le clic sur le bouton "Dézoomer". */
 async function zoomOut() {
-    if (currentPathSegments.length === 0) return;
-    try {
-        selectedRectangle = null;
-        if (treemapTooltipEl) treemapTooltipEl.style.display = 'none';
-
-        currentPathSegments.pop();
-        const { width, height } = treemapCanvasEl.getBoundingClientRect();
-        const result = await invoke<LayoutResult>("zoom_in", { segments: currentPathSegments, width, height });
-        currentRectangles = result.rectangles;
-
-        const currentFullPath = [scanRootPath, ...currentPathSegments].join('/');
-
-        await appWindow.setTitle(tr('window-title-viewing', {
-            path: currentFullPath,
-            size: formatBytes(result.total_size),
-            items: result.total_items.toString()
-        }));
-
-        await renderTreemap();
-    } catch (error) {
-        console.error("Zoom out failed:", error);
-        await showScanMessage("scan-failed-title", `${error}`);
+    if (currentPathSegments.length > 0) {
+        const newSegments = [...currentPathSegments];
+        newSegments.pop();
+        await zoomIn(newSegments);
     }
 }
 
-
+/** Gère le clic sur le bouton "Réinitialiser". */
 function resetZoom() {
     if (currentPathSegments.length > 0) {
         zoomIn([]);
     }
 }
 
+/** Ouvre la boîte de dialogue native pour choisir un dossier. */
 async function browse() {
     const result = await open({
         directory: true, multiple: false,
@@ -201,47 +204,33 @@ async function browse() {
     }
 }
 
-function hideTooltipAndDeselect() {
-    if (treemapTooltipEl) treemapTooltipEl.style.display = 'none';
-    if (selectedRectangle) {
-        selectedRectangle = null;
-        renderTreemap();
-    }
-}
-
+/** Gère le clic simple sur le canvas (sélection et affichage de l'infobulle). */
 async function handleCanvasClick(event: MouseEvent) {
     const clickedRect = getClickedRectangle(event);
 
-    // Si on clique dans le vide, on cache l'infobulle et on désélectionne
     if (!clickedRect) {
         hideTooltipAndDeselect();
         return;
     }
-
-    // Si on clique sur le même rectangle déjà sélectionné, on désélectionne (toggle)
+    // Toggle : si on clique sur le même rectangle, on désélectionne.
     if (selectedRectangle && selectedRectangle.path === clickedRect.path) {
         hideTooltipAndDeselect();
         return;
     }
-
+    
     selectedRectangle = clickedRect;
-    await renderTreemap();
+    await renderTreemap(); // Redessine pour montrer la bordure de sélection
 
     if (treemapTooltipEl && treemapCanvasEl) {
         const sizeStr = formatBytes(selectedRectangle.size);
         const typeKey = selectedRectangle.is_directory ? 'tooltip-type-dir' : 'tooltip-type-file';
-
-        // Calculer le pourcentage par rapport au total affiché (somme du niveau 0)
-        const totalDisplayedSize = currentRectangles
-            .filter(r => r && r.depth === 0)
-            .reduce((sum, r) => sum + r.size, 0);
-            
+        const totalDisplayedSize = currentRectangles.reduce((sum, r) => r.depth === 0 ? sum + r.size : sum, 0);
         const percentage = totalDisplayedSize > 0 ? (selectedRectangle.size / totalDisplayedSize) * 100 : 0;
 
         treemapTooltipEl.innerHTML = `
-            <strong>${selectedRectangle.name === 'other-files-name' ? tr('other-files-name') : selectedRectangle.name}</strong>
+            <strong>${tr(selectedRectangle.name)}</strong>
             <span>${tr('tooltip-path-label')}:</span> ${selectedRectangle.path}<br>
-            <span>${tr('tooltip-size-label')}:</span> ${sizeStr} (${percentage.toFixed(4)}%)<br>
+            <span>${tr('tooltip-size-label')}:</span> ${sizeStr} (${percentage.toFixed(2)}%)<br>
             <span>${tr('tooltip-type-label')}:</span> ${tr(typeKey)}<br>
             <span>Pixels:</span> ${selectedRectangle.width.toFixed(1)}px x ${selectedRectangle.height.toFixed(1)}px
         `;
@@ -252,23 +241,27 @@ async function handleCanvasClick(event: MouseEvent) {
     }
 }
 
+/** Gère le double-clic sur le canvas (zoom dans un dossier). */
 function handleCanvasDblClick(event: MouseEvent) {
     const clickedRect = getClickedRectangle(event);
     if (!clickedRect || !clickedRect.is_directory || !scanRootPath) return;
-    if (clickedRect.path === scanRootPath) return;
+    if (clickedRect.name.startsWith('[')) return;
+    if (clickedRect.path === scanRootPath) {
+        zoomIn([]);
+        return;
+    }
 
     if (clickedRect.path.startsWith(scanRootPath)) {
         let relativePath = clickedRect.path.substring(scanRootPath.length);
         if (relativePath.startsWith('/')) {
             relativePath = relativePath.substring(1);
         }
-        const segments = relativePath.split('/').filter(s => s.length > 0 && s !== '.');
-        if (segments.length > 0) {
-            zoomIn(segments);
-        }
+        const newSegments = relativePath.split('/').filter(s => s.length > 0 && s !== '.');
+        zoomIn(newSegments);
     }
 }
 
+/** Trouve le rectangle le plus spécifique (le plus petit en surface) sous le curseur. */
 function getClickedRectangle(event: MouseEvent): Rectangle | null {
     if (!treemapCanvasEl) return null;
     const x = event.offsetX;
@@ -277,6 +270,7 @@ function getClickedRectangle(event: MouseEvent): Rectangle | null {
     for (const r of currentRectangles) {
         if (!r) continue;
         if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
+            // On garde le plus petit rectangle (le plus "profond")
             if (!clickedRect || (r.width * r.height < clickedRect.width * clickedRect.height)) {
                 clickedRect = r;
             }
@@ -285,49 +279,68 @@ function getClickedRectangle(event: MouseEvent): Rectangle | null {
     return clickedRect;
 }
 
-// --- INITIALIZATION ---
+/** Met à jour l'état activé/désactivé des boutons de zoom. */
+function updateButtonStates() {
+    const zoomOutBtn = document.querySelector("#zoom-out-btn") as HTMLButtonElement | null;
+    const resetZoomBtn = document.querySelector("#reset-zoom-btn") as HTMLButtonElement | null;
+    
+    const isAtRoot = currentPathSegments.length === 0;
+    
+    if (zoomOutBtn) zoomOutBtn.disabled = isAtRoot;
+    if (resetZoomBtn) resetZoomBtn.disabled = isAtRoot;
+}
+
+
+// --- INITIALISATION AU CHARGEMENT DE LA PAGE ---
 window.addEventListener("DOMContentLoaded", async () => {
-    // DOM elements
+    // Récupération des éléments du DOM
     scanPathInputEl = document.querySelector("#scan-path-input");
     treemapCanvasEl = document.querySelector("#treemap-canvas");
     treemapTooltipEl = document.querySelector("#treemap-tooltip");
     if (treemapCanvasEl) {
         treemapCtx = treemapCanvasEl.getContext('2d');
+        treemapCanvasEl.addEventListener('click', handleCanvasClick);
+        treemapCanvasEl.addEventListener('dblclick', handleCanvasDblClick);
     }
 
-    // Event listeners
+    // Écouteurs d'événements globaux
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') hideTooltipAndDeselect();
+    });
+    document.querySelector(".toolbar")?.addEventListener('click', (e) => {
+        if (e.target && (e.target as HTMLElement).tagName !== 'INPUT') {
+            hideTooltipAndDeselect();
+        }
+    });
     document.querySelector("#scan-form")?.addEventListener("submit", (e) => { e.preventDefault(); performScan(); });
     document.querySelector("#browse-btn")?.addEventListener("click", browse);
     document.querySelector("#zoom-out-btn")?.addEventListener("click", zoomOut);
     document.querySelector("#reset-zoom-btn")?.addEventListener("click", resetZoom);
-    treemapCanvasEl?.addEventListener('click', handleCanvasClick);
-    treemapCanvasEl?.addEventListener('dblclick', handleCanvasDblClick);
     window.addEventListener('resize', () => {
         if (scanRootPath && currentRectangles.length > 0) {
             zoomIn(currentPathSegments);
         }
     });
 
-    // Backend event listeners
+    // Écouteurs pour les événements du backend Rust
     listen('scan-progress', async (event) => {
         const payload = event.payload as { path: string, files: number, dirs: number };
         await showScanMessage("scanning-title", payload.path, payload.files, payload.dirs);
         await appWindow.setTitle(tr('window-title-scanning'));
     });
     listen('scan-complete', async () => {
-        // Déclencher immédiatement la récupération du layout racine avec les dimensions actuelles
-        await zoomIn([]);
+        await zoomIn([]); // Affiche la racine après un scan
     });
     listen('scan-error', async (event) => {
         console.error("Scan failed:", event.payload);
         await showScanMessage("scan-failed-title", `${event.payload}`);
     });
 
-    // Load translations
+    // Chargement des traductions et initialisation de l'UI
     try {
         let locale = await invoke<string>("get_locale");
         const response = await fetch(`/locales/${locale}.json`);
-        if (!response.ok) {
+        if (!response.ok) { // Si la traduction n'existe pas, on bascule sur l'anglais
             locale = 'en';
             const fallbackResponse = await fetch(`/locales/en.json`);
             i18nMessages = await fallbackResponse.json();
@@ -335,8 +348,7 @@ window.addEventListener("DOMContentLoaded", async () => {
             i18nMessages = await response.json();
         }
     } catch (e) { console.error("Failed to load translations", e); }
-
-    // Set initial texts
+    
     document.querySelector('#path-label')!.textContent = tr('path-label');
     document.querySelector('#browse-btn')!.textContent = tr('browse-btn');
     document.querySelector('#scan-btn')!.textContent = tr('scan-btn');
@@ -345,7 +357,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     scanPathInputEl!.placeholder = tr('path-input-placeholder');
     await appWindow.setTitle(tr('window-title-default'));
 
-    // Set initial path
     try {
         const defaultPath = await invoke<string>("get_default_scan_path");
         if (scanPathInputEl) {
@@ -355,4 +366,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     } catch (error) {
         console.error("Failed to get default path:", error);
     }
+    
+    updateButtonStates(); // État initial des boutons
 });
