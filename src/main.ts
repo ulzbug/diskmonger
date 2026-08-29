@@ -4,8 +4,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+
 
 // --- ÉTAT GLOBAL DE L'APPLICATION ---
 const appWindow = getCurrentWindow();
@@ -13,11 +14,13 @@ let scanPathInputEl: HTMLInputElement | null;
 let treemapCanvasEl: HTMLCanvasElement | null;
 let treemapCtx: CanvasRenderingContext2D | null = null;
 let treemapTooltipEl: HTMLElement | null = null;
+let toggleFreeSpaceBtnEl: HTMLButtonElement | null;
 
 let currentRectangles: Rectangle[] = []; // Les rectangles actuellement affichés
 let scanRootPath: string | null = null; // Le chemin absolu du scan initial
 let currentPathSegments: string[] = []; // Les segments du chemin de la vue actuelle, ex: ['Documents', 'Projets']
 let selectedRectangle: Rectangle | null = null; // Le rectangle actuellement sélectionné par un clic
+let showFreeSpace = true; // L'état du bouton pour afficher/cacher l'espace libre
 
 let i18nMessages: Record<string, string> = {}; // Cache pour les messages de traduction
 
@@ -73,8 +76,12 @@ async function renderTreemap() {
     for (const rect of currentRectangles) {
         if (!rect) continue; // Sécurité
 
-        // Dessine le fond du rectangle avec une couleur basée sur sa profondeur
-        treemapCtx.fillStyle = COLORS[rect.depth % COLORS.length];
+        // Dessine le fond du rectangle (gris clair pour l'espace libre, sinon couleur selon la profondeur)
+        if (rect.name === 'free-space-name') {
+            treemapCtx.fillStyle = '#E0E0E0';
+        } else {
+            treemapCtx.fillStyle = COLORS[rect.depth % COLORS.length];
+        }
         treemapCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
 
         // Dessine la bordure (blanche si sélectionné, noire sinon)
@@ -142,7 +149,7 @@ async function performScan() {
         const path = scanPathInputEl.value;
         scanRootPath = path;
         hideTooltipAndDeselect();
-        
+
         // Afficher le bouton d'annulation du scan
         const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
         if (cancelBtn) cancelBtn.style.display = 'block';
@@ -163,7 +170,7 @@ async function zoomIn(segments: string[]) {
         hideTooltipAndDeselect();
         currentPathSegments = segments;
         const { width, height = 0 } = treemapCanvasEl.getBoundingClientRect();
-        const result = await invoke<LayoutResult>("zoom_in", { segments, width, height });
+        const result = await invoke<LayoutResult>("zoom_in", { segments, width, height, showFreeSpace });
         currentRectangles = result.rectangles;
 
         const currentFullPath = [scanRootPath, ...segments].join('/') || scanRootPath;
@@ -226,7 +233,6 @@ async function handleCanvasClick(event: MouseEvent) {
     await renderTreemap();
 
     if (treemapTooltipEl && treemapCanvasEl) {
-        treemapTooltipEl.innerHTML = '';
         const sizeStr = formatBytes(selectedRectangle.size);
         const typeKey = selectedRectangle.is_directory ? 'tooltip-type-dir' : 'tooltip-type-file';
         const totalDisplayedSize = currentRectangles.reduce((sum, r) => r.depth === 0 ? sum + r.size : sum, 0);
@@ -236,81 +242,83 @@ async function handleCanvasClick(event: MouseEvent) {
         treemapTooltipEl.innerHTML = `
             <strong>${tr(selectedRectangle.name)}</strong>
             <div class="tooltip-info"><span>${tr('tooltip-size-label')}:</span> ${sizeStr} (${percentage.toFixed(2)}%)</div>
+		`;
+		if (selectedRectangle.name !== 'free-space-name') {
+			treemapTooltipEl.innerHTML += `
             <div class="tooltip-info"><span>${tr('tooltip-type-label')}:</span> ${tr(typeKey)}</div>
             <div class="tooltip-info"><span>${tr('tooltip-path-label')}:</span> ${selectedRectangle.path}</div>
-            <hr>
-        `;
+			`;
+		}
+        treemapTooltipEl.innerHTML += '<hr>';
 
         const actionsEl = document.createElement('div');
         actionsEl.className = 'tooltip-actions';
 
-        const openBtn = document.createElement('button');
-        openBtn.textContent = selectedRectangle.is_directory ? tr('tooltip-action-zoom') : tr('tooltip-action-open');
-        openBtn.onclick = () => {
-            if (selectedRectangle) {
-                if (selectedRectangle.is_directory) {
-                    handleCanvasDblClick(event);
-                } else {
-                    invoke('tauri-plugin-opener:open', { path: selectedRectangle.path });
+        if (selectedRectangle.name !== 'free-space-name') {
+            const openBtn = document.createElement('button');
+            openBtn.textContent = selectedRectangle.is_directory ? tr('tooltip-action-zoom') : tr('tooltip-action-open');
+            openBtn.onclick = () => {
+                if (selectedRectangle) {
+                    if (selectedRectangle.is_directory) {
+                        handleCanvasDblClick(event);
+                    } else {
+                        invoke('tauri-plugin-opener:open', { path: selectedRectangle.path });
+                    }
                 }
-            }
-        };
-        actionsEl.appendChild(openBtn);
+            };
+            actionsEl.appendChild(openBtn);
 
-        const revealBtn = document.createElement('button');
-        revealBtn.textContent = tr('tooltip-action-reveal');
-        revealBtn.onclick = () => {
-            if (selectedRectangle) invoke('reveal_in_explorer', { path: selectedRectangle.path });
-        };
-        actionsEl.appendChild(revealBtn);
+            const revealBtn = document.createElement('button');
+            revealBtn.textContent = tr('tooltip-action-reveal');
+            revealBtn.onclick = () => {
+                if (selectedRectangle) invoke('reveal_in_explorer', { path: selectedRectangle.path });
+            };
+            actionsEl.appendChild(revealBtn);
 
-        const copyBtn = document.createElement('button');
-        copyBtn.textContent = tr('tooltip-action-copy-path');
-        copyBtn.onclick = () => {
-            if (selectedRectangle) navigator.clipboard.writeText(selectedRectangle.path);
-        };
-        actionsEl.appendChild(copyBtn);
+            const copyBtn = document.createElement('button');
+            copyBtn.textContent = tr('tooltip-action-copy-path');
+            copyBtn.onclick = () => {
+                if (selectedRectangle) navigator.clipboard.writeText(selectedRectangle.path);
+            };
+            actionsEl.appendChild(copyBtn);
 
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'danger';
-        deleteBtn.textContent = tr('tooltip-action-delete');
-        deleteBtn.onclick = async () => {
-            if (selectedRectangle) {
-                // Utiliser la fonction de confirmation native confirm()
-                const confirmed = await confirm(tr('delete-confirm-message', { path: selectedRectangle.path }), {
-                    title: tr('delete-confirm-title'),
-                    kind: 'warning',
-                    okLabel: tr('delete-confirm-ok'),
-                    cancelLabel: tr('delete-confirm-cancel'),
-                });
-                if (confirmed) {
-                    invoke('trash_item', { path: selectedRectangle.path })
-                        .then(() => {
-                            hideTooltipAndDeselect();
-                            zoomIn(currentPathSegments);
-                        })
-                        .catch(e => console.error("Failed to delete item:", e));
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'danger';
+            deleteBtn.textContent = tr('tooltip-action-delete');
+            deleteBtn.onclick = async () => {
+                if (selectedRectangle) {
+                    const confirmed = await confirm(tr('delete-confirm-message', { path: selectedRectangle.path }), {
+                        title: tr('delete-confirm-title'),
+                        kind: 'warning',
+                        okLabel: tr('delete-confirm-ok'),
+                        cancelLabel: tr('delete-confirm-cancel'),
+                    });
+                    if (confirmed) {
+                        invoke('trash_item', { path: selectedRectangle.path })
+                            .then(() => {
+                                hideTooltipAndDeselect();
+                                zoomIn(currentPathSegments);
+                            })
+                            .catch(e => console.error("Failed to delete item:", e));
+                    }
                 }
-            }
-        };
-        actionsEl.appendChild(deleteBtn);
+            };
+            actionsEl.appendChild(deleteBtn);
+        }
 
         treemapTooltipEl.appendChild(actionsEl);
 
         treemapTooltipEl.style.display = 'block';
         treemapTooltipEl.style.pointerEvents = 'auto';
 
-        // Calculer les dimensions de l'infobulle pour le positionnement intelligent
         const tooltipRect = treemapTooltipEl.getBoundingClientRect();
         const canvasRect = treemapCanvasEl.getBoundingClientRect();
         let top = event.clientY + 10;
         let left = event.clientX + 10;
 
-        // Positionnement intelligent vers le haut si ça déborde en bas
         if (top + tooltipRect.height > window.innerHeight) {
             top = event.clientY - tooltipRect.height - 10;
         }
-        // Positionnement intelligent vers la gauche si ça déborde à droite
         if (left + tooltipRect.width > window.innerWidth) {
             left = event.clientX - tooltipRect.width - 10;
         }
@@ -319,6 +327,7 @@ async function handleCanvasClick(event: MouseEvent) {
         treemapTooltipEl.style.top = `${top - canvasRect.top}px`;
     }
 }
+
 
 /** Gère le double-clic sur le canvas (zoom dans un dossier). */
 function handleCanvasDblClick(event: MouseEvent) {
@@ -349,7 +358,6 @@ function getClickedRectangle(event: MouseEvent): Rectangle | null {
     for (const r of currentRectangles) {
         if (!r) continue;
         if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
-            // On garde le plus petit rectangle (le plus "profond")
             if (!clickedRect || (r.width * r.height < clickedRect.width * clickedRect.height)) {
                 clickedRect = r;
             }
@@ -359,7 +367,7 @@ function getClickedRectangle(event: MouseEvent): Rectangle | null {
 }
 
 /** Met à jour l'état activé/désactivé des boutons de zoom. */
-function updateButtonStates() {
+async function updateButtonStates() {
     const zoomOutBtn = document.querySelector("#zoom-out-btn") as HTMLButtonElement | null;
     const resetZoomBtn = document.querySelector("#reset-zoom-btn") as HTMLButtonElement | null;
 
@@ -367,22 +375,46 @@ function updateButtonStates() {
 
     if (zoomOutBtn) zoomOutBtn.disabled = isAtRoot;
     if (resetZoomBtn) resetZoomBtn.disabled = isAtRoot;
+    await updateFreeSpaceButtonState();
+}
+
+/** Met à jour l'état du bouton pour afficher/cacher l'espace libre. */
+async function updateFreeSpaceButtonState() {
+    if (!toggleFreeSpaceBtnEl) return;
+
+    let isMount = false;
+    if (scanRootPath) {
+        try {
+            isMount = await invoke<boolean>('is_mount_point', { path: scanRootPath });
+        } catch (e) {
+            console.error("Failed to check if path is mount point:", e);
+            isMount = false;
+        }
+    }
+
+    if (isMount) {
+        toggleFreeSpaceBtnEl.style.display = 'block';
+        toggleFreeSpaceBtnEl.textContent = tr(showFreeSpace ? 'toggle-free-space-btn-hide' : 'toggle-free-space-btn-show');
+    } else {
+        toggleFreeSpaceBtnEl.style.display = 'none';
+        toggleFreeSpaceBtnEl.textContent = tr('toggle-free-space-btn-hide'); // Default text when disabled
+    }
 }
 
 
 // --- INITIALISATION AU CHARGEMENT DE LA PAGE ---
 window.addEventListener("DOMContentLoaded", async () => {
-    // Récupération des éléments du DOM
     scanPathInputEl = document.querySelector("#scan-path-input");
     treemapCanvasEl = document.querySelector("#treemap-canvas");
     treemapTooltipEl = document.querySelector("#treemap-tooltip");
+    toggleFreeSpaceBtnEl = document.querySelector("#toggle-free-space-btn");
+
     if (treemapCanvasEl) {
         treemapCtx = treemapCanvasEl.getContext('2d');
         treemapCanvasEl.addEventListener('click', handleCanvasClick);
         treemapCanvasEl.addEventListener('dblclick', handleCanvasDblClick);
     }
 
-    // Écouteurs d'événements globaux
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') hideTooltipAndDeselect();
     });
@@ -395,13 +427,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     document.querySelector("#browse-btn")?.addEventListener("click", browse);
     document.querySelector("#zoom-out-btn")?.addEventListener("click", zoomOut);
     document.querySelector("#reset-zoom-btn")?.addEventListener("click", resetZoom);
+    toggleFreeSpaceBtnEl?.addEventListener('click', () => {
+        showFreeSpace = !showFreeSpace;
+        updateFreeSpaceButtonState();
+        zoomIn(currentPathSegments);
+    });
     window.addEventListener('resize', () => {
         if (scanRootPath && currentRectangles.length > 0) {
             zoomIn(currentPathSegments);
         }
     });
 
-    // Écouteurs pour les événements du backend Rust
     listen('scan-progress', async (event) => {
         const payload = event.payload as { path: string, files: number, dirs: number };
         await showScanMessage("scanning-title", payload.path, payload.files, payload.dirs);
@@ -410,13 +446,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     listen('scan-complete', async () => {
         const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
         if (cancelBtn) cancelBtn.style.display = 'none';
-        await zoomIn([]); // Affiche la racine après un scan
+        await zoomIn([]);
     });
     listen('scan-cancelled', async () => {
         const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
         if (cancelBtn) cancelBtn.style.display = 'none';
 
-        // Remise à neuf de l'application (canvas entièrement noir et vide)
         currentRectangles = [];
         scanRootPath = null;
         currentPathSegments = [];
@@ -428,7 +463,7 @@ window.addEventListener("DOMContentLoaded", async () => {
             const { width, height } = treemapCanvasEl.getBoundingClientRect();
             treemapCanvasEl.width = width;
             treemapCanvasEl.height = height;
-            treemapCtx.clearRect(0, 0, width, height); // Canvas vide
+            treemapCtx.clearRect(0, 0, width, height);
         }
     });
     listen('scan-error', async (event) => {
@@ -436,7 +471,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         const cancelBtn = document.querySelector("#cancel-scan-btn") as HTMLElement | null;
         if (cancelBtn) cancelBtn.style.display = 'none';
 
-        // Réinitialiser tout l'état pour la sécurité
         currentRectangles = [];
         scanRootPath = null;
         currentPathSegments = [];
@@ -444,16 +478,14 @@ window.addEventListener("DOMContentLoaded", async () => {
         hideTooltipAndDeselect();
         await appWindow.setTitle(tr('window-title-default'));
 
-        // S'il s'agit d'une vraie erreur, on affiche le message d'échec
         const errorMsg = event.payload as string;
         await showScanMessage("scan-failed-title", errorMsg);
     });
 
-    // Chargement des traductions et initialisation de l'UI
     try {
         let locale = await invoke<string>("get_locale");
         const response = await fetch(`/locales/${locale}.json`);
-        if (!response.ok) { // Si la traduction n'existe pas, on bascule sur l'anglais
+        if (!response.ok) {
             locale = 'en';
             const fallbackResponse = await fetch(`/locales/en.json`);
             i18nMessages = await fallbackResponse.json();
@@ -488,5 +520,5 @@ window.addEventListener("DOMContentLoaded", async () => {
         console.error("Failed to get default path:", error);
     }
 
-    updateButtonStates(); // État initial des boutons
+    updateButtonStates();
 });

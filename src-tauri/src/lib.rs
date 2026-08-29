@@ -7,6 +7,8 @@ use tauri::{Emitter, Manager, State};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[cfg(unix)]
+
 /// Le cache applicatif, accessible par toutes les commandes.
 /// Contient l'arbre de scan complet (`FsNode`) et la taille de cluster du système de fichiers.
 /// `Arc<Mutex<>>` est utilisé pour un accès thread-safe depuis les différentes commandes.
@@ -73,13 +75,27 @@ fn scan(path: String, window: tauri::Window, cache: State<ScanCache>) {
 /// Calcule et retourne le layout pour un chemin de segments donné.
 /// C'est le point d'entrée pour l'affichage initial et pour chaque zoom.
 #[tauri::command]
-fn zoom_in(segments: Vec<String>, width: f64, height: f64, cache: State<ScanCache>) -> Result<layout::LayoutResult, String> {
+fn zoom_in(segments: Vec<String>, width: f64, height: f64, cache: State<ScanCache>, show_free_space: bool) -> Result<layout::LayoutResult, String> {
     let mut cache_lock = cache.0.lock().unwrap();
     if let Some((root_node, cluster_size)) = &mut *cache_lock {
         
-        let mut current_path = std::path::PathBuf::from(root_node.name());
-        let mut current_node = root_node;
+        let root_name_str = root_node.name();
+        let mut current_path = std::path::PathBuf::from(root_name_str);
 
+        let mut should_add_free_space = false;
+        if show_free_space && segments.is_empty() {
+            if is_mount_point(root_name_str.to_string()).unwrap_or(false) {
+                should_add_free_space = true;
+            }
+        }
+        
+        let free_space_bytes = if should_add_free_space {
+            get_free_space(root_name_str.to_string()).ok()
+        } else {
+            None
+        };
+
+        let mut current_node = root_node;
         for segment in &segments {
             match current_node {
                 scanner::FsNode::Dir(dir) => {
@@ -94,7 +110,7 @@ fn zoom_in(segments: Vec<String>, width: f64, height: f64, cache: State<ScanCach
             }
         }
         
-        Ok(layout::calculate_layout(current_node, width, height, *cluster_size, &current_path))
+        Ok(layout::calculate_layout(current_node, width, height, *cluster_size, &current_path, free_space_bytes))
 
     } else {
         Err("Aucun scan n'a été effectué".to_string())
@@ -119,6 +135,80 @@ fn cancel_scan() {
     scanner::CANCEL_SCAN.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Retourne l'espace disque libre en octets pour le disque contenant le chemin donné.
+#[tauri::command]
+fn get_free_space(path: String) -> Result<u64, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        use libc::statvfs;
+        use std::ffi::CString;
+        let c_path = CString::new(path.as_bytes()).map_err(|e| e.to_string())?;
+        let mut stats: statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { statvfs(c_path.as_ptr(), &mut stats) } == 0 {
+            Ok((stats.f_bfree as u64) * (stats.f_frsize as u64))
+        } else {
+            Err("Impossible de récupérer les informations du système de fichiers.".to_string())
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use winapi::um::fileapi::GetDiskFreeSpaceExW;
+        let path_wide: Vec<u16> = std::path::Path::new(&path).as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let mut free_bytes = 0;
+        if unsafe { GetDiskFreeSpaceExW(path_wide.as_ptr(), &mut free_bytes, &mut 0, &mut 0) } != 0 {
+            Ok(free_bytes)
+        } else {
+            Err("Impossible de récupérer l'espace disque libre.".to_string())
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(0) // Non supporté sur cette plateforme
+    }
+}
+
+use std::os::unix::fs::MetadataExt;
+
+#[tauri::command]
+fn is_mount_point(path: String) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        use std::path::Path;
+        let p = Path::new(&path);
+        if !p.is_absolute() {
+            return Ok(false);
+        }
+        // Pour un chemin comme "C:\", son parent est lui-même.
+        // Pour "C:\Users", son parent est "C:\".
+        Ok(p.parent().map_or(false, |parent| parent.as_os_str() == p.as_os_str()))
+    }
+
+    #[cfg(unix)]
+    {
+        if path == "/" {
+            return Ok(true);
+        }
+
+        let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+        
+        let mut parent_path = std::path::PathBuf::from(&path);
+        if !parent_path.pop() {
+            return Ok(false);
+        }
+       
+        let parent_meta = std::fs::metadata(parent_path).map_err(|e| e.to_string())?;
+
+        Ok(metadata.dev() != parent_meta.dev())
+    }
+    
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(false)
+    }
+}
+
 /// Configure et lance l'application Tauri.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -133,7 +223,9 @@ pub fn run() {
             get_locale,
             trash_item,
             reveal_in_explorer,
-            cancel_scan
+            cancel_scan,
+            get_free_space,
+            is_mount_point
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

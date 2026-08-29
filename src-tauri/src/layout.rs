@@ -128,19 +128,32 @@ fn generate_treemap_rects(
 
 /// Point d'entrée principal pour calculer le layout d'une vue.
 /// Calcule le seuil, les statistiques, et lance la génération récursive des rectangles.
-pub fn calculate_layout(root: &mut FsNode, width: f64, height: f64, cluster_size: u64, view_path: &std::path::Path) -> LayoutResult {
+pub fn calculate_layout(root: &mut FsNode, width: f64, height: f64, cluster_size: u64, view_path: &std::path::Path, free_space_bytes: Option<u64>) -> LayoutResult {
     let mut rectangles = Vec::new();
     let total_items = root.count_items().saturating_sub(1);
+    let original_total_size = root.size_in_clusters() as u64 * cluster_size;
     
     if let FsNode::Dir(dir) = root {
-        let initial_bounds = Rect::from_points(0.0, 0.0, width, height);
-        // Le seuil de regroupement est de 0.02% de la taille totale de la vue actuelle.
-        let threshold = (dir.size_in_clusters as f64 * 0.0002) as u32;
-        let total_size = dir.size_in_clusters as u64 * cluster_size;
+        let mut children_with_free_space = dir.children.clone();
 
-        generate_treemap_rects(&mut rectangles, &mut dir.children, initial_bounds, 0, view_path, threshold, cluster_size);
+        if let Some(free_bytes) = free_space_bytes {
+            if cluster_size > 0 {
+                let free_space_clusters = ((free_bytes + cluster_size - 1) / cluster_size) as u32;
+                children_with_free_space.push(FsNode::File(FsFile {
+                    name: "free-space-name".into(),
+                    size_in_clusters: free_space_clusters,
+                }));
+            }
+        }
+
+        let initial_bounds = Rect::from_points(0.0, 0.0, width, height);
+
+        let layout_total_size_in_clusters: u32 = children_with_free_space.iter().map(|n| n.size_in_clusters()).sum();
+        let threshold = (layout_total_size_in_clusters as f64 * 0.0002) as u32;
         
-        LayoutResult { rectangles, total_items, total_size }
+        generate_treemap_rects(&mut rectangles, &mut children_with_free_space, initial_bounds, 0, view_path, threshold, cluster_size);
+        
+        LayoutResult { rectangles, total_items, total_size: original_total_size }
     } else {
         // Cas d'un fichier à la racine (ne devrait pas arriver en pratique pour une vue).
         LayoutResult { rectangles, total_items: 1, total_size: root.size_in_clusters() as u64 * cluster_size }
