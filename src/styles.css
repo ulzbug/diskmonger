@@ -85,29 +85,71 @@ body {
 #treemap-tooltip {
   display: none;
   position: absolute;
-  background-color: rgba(20, 20, 20, 0.95);
+  background-color: rgba(40, 40, 40, 0.97);
   color: #fff;
-  border: 1px solid #555;
-  padding: 6px 10px;
-  border-radius: 4px;
+  border: 1px solid #666;
+  padding: 8px;
+  border-radius: 5px;
   font-size: 11px;
   font-family: sans-serif;
-  pointer-events: none; /* Les clics passent à travers pour ne pas gêner */
   z-index: 1000;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  line-height: 1.5;
   text-align: left;
+  min-width: 180px;
 }
 
 #treemap-tooltip strong {
-  font-size: 12px;
-  color: #7fffff; /* Titre en cyan brillant pour le nom */
+  font-size: 13px;
+  color: #85d9ff;
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
-#treemap-tooltip span {
-  color: #aaa;
-  font-weight: bold;
+#treemap-tooltip .tooltip-info {
+  color: #ccc;
+  font-size: 10px;
+  margin-bottom: 2px;
+  word-wrap: break-word;
+  max-width: 300px;
+}
+#treemap-tooltip .tooltip-info span {
+  color: #888;
 }
 
+#treemap-tooltip hr {
+  border: none;
+  border-top: 1px solid #555;
+  margin: 8px 0;
+}
+
+.tooltip-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.tooltip-actions button {
+  width: 100%;
+  background-color: #4f4f4f;
+  color: #f0f0f0;
+  border: 1px solid #777;
+  border-radius: 3px;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.1s ease;
+}
+.tooltip-actions button:hover {
+  background-color: #6a6a6a;
+  border-color: #999;
+}
+.tooltip-actions button.danger {
+  color: #ff9e9e;
+}
+.tooltip-actions button.danger:hover {
+  background-color: #8d4343;
+  color: #fff;
+}

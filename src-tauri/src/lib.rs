@@ -87,6 +87,18 @@ fn zoom_in(segments: Vec<String>, width: f64, height: f64, cache: State<ScanCach
     }
 }
 
+/// Déplace un fichier ou un dossier vers la corbeille du système.
+#[tauri::command]
+async fn trash_item(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| e.to_string())
+}
+
+/// Ouvre l'explorateur de fichiers du système et y sélectionne le fichier ou le dossier.
+#[tauri::command]
+async fn reveal_in_explorer(path: String) -> Result<(), String> {
+    opener::reveal(&path).map_err(|e| e.to_string())
+}
+
 /// Configure et lance l'application Tauri.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -94,7 +106,14 @@ pub fn run() {
         .manage(ScanCache(Default::default()))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![scan, zoom_in, get_default_scan_path, get_locale])
+        .invoke_handler(tauri::generate_handler![
+            scan,
+            zoom_in,
+            get_default_scan_path,
+            get_locale,
+            trash_item,
+            reveal_in_explorer
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

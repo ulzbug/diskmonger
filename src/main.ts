@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // --- ÉTAT GLOBAL DE L'APPLICATION ---
@@ -85,11 +85,11 @@ async function renderTreemap() {
         // N'affiche le texte que si le rectangle est assez large
         if (rect.width >= 25) {
             const displayName = tr(rect.name);
-            if (rect.name.startsWith('[')) {
+            if (rect.name == 'other-files-name') {
                 // Ne rien dessiner pour les groupes "[Autres...]"
             } else if (rect.is_directory) {
                 treemapCtx.fillStyle = '#000000';
-                treemapCtx.font = "9px sans-serif";
+                treemapCtx.font = "8px sans-serif";
                 treemapCtx.fillText(displayName, rect.x + 3, rect.y + 10);
             } else {
                 treemapCtx.fillStyle = '#000000';
@@ -148,7 +148,7 @@ async function performScan() {
     }
 }
 
-/** 
+/**
  * Fonction centrale pour le zoom. Appelle le backend pour obtenir le nouveau layout
  * et met à jour l'état de l'application (rectangles, titre, état des boutons).
  */
@@ -156,7 +156,7 @@ async function zoomIn(segments: string[]) {
     if (!treemapCanvasEl) return;
     try {
         hideTooltipAndDeselect();
-        currentPathSegments = segments; 
+        currentPathSegments = segments;
         const { width, height = 0 } = treemapCanvasEl.getBoundingClientRect();
         const result = await invoke<LayoutResult>("zoom_in", { segments, width, height });
         currentRectangles = result.rectangles;
@@ -167,7 +167,7 @@ async function zoomIn(segments: string[]) {
             size: formatBytes(result.total_size),
             items: result.total_items.toString()
         }));
-        
+
         updateButtonStates();
         await renderTreemap();
     } catch (error) {
@@ -212,32 +212,106 @@ async function handleCanvasClick(event: MouseEvent) {
         hideTooltipAndDeselect();
         return;
     }
-    // Toggle : si on clique sur le même rectangle, on désélectionne.
     if (selectedRectangle && selectedRectangle.path === clickedRect.path) {
         hideTooltipAndDeselect();
         return;
     }
-    
+
     selectedRectangle = clickedRect;
-    await renderTreemap(); // Redessine pour montrer la bordure de sélection
+    await renderTreemap();
 
     if (treemapTooltipEl && treemapCanvasEl) {
+        treemapTooltipEl.innerHTML = '';
         const sizeStr = formatBytes(selectedRectangle.size);
         const typeKey = selectedRectangle.is_directory ? 'tooltip-type-dir' : 'tooltip-type-file';
         const totalDisplayedSize = currentRectangles.reduce((sum, r) => r.depth === 0 ? sum + r.size : sum, 0);
         const percentage = totalDisplayedSize > 0 ? (selectedRectangle.size / totalDisplayedSize) * 100 : 0;
 
+        // Rétablir les bonnes informations détaillées de l'ancienne version
         treemapTooltipEl.innerHTML = `
             <strong>${tr(selectedRectangle.name)}</strong>
-            <span>${tr('tooltip-path-label')}:</span> ${selectedRectangle.path}<br>
-            <span>${tr('tooltip-size-label')}:</span> ${sizeStr} (${percentage.toFixed(2)}%)<br>
-            <span>${tr('tooltip-type-label')}:</span> ${tr(typeKey)}<br>
-            <span>Pixels:</span> ${selectedRectangle.width.toFixed(1)}px x ${selectedRectangle.height.toFixed(1)}px
+            <div class="tooltip-info"><span>${tr('tooltip-size-label')}:</span> ${sizeStr} (${percentage.toFixed(2)}%)</div>
+            <div class="tooltip-info"><span>${tr('tooltip-type-label')}:</span> ${tr(typeKey)}</div>
+            <div class="tooltip-info"><span>${tr('tooltip-path-label')}:</span> ${selectedRectangle.path}</div>
+            <hr>
         `;
-        const rect = treemapCanvasEl.getBoundingClientRect();
-        treemapTooltipEl.style.left = `${event.clientX - rect.left + 10}px`;
-        treemapTooltipEl.style.top = `${event.clientY - rect.top + 10}px`;
+
+        const actionsEl = document.createElement('div');
+        actionsEl.className = 'tooltip-actions';
+
+        const openBtn = document.createElement('button');
+        openBtn.textContent = selectedRectangle.is_directory ? tr('tooltip-action-zoom') : tr('tooltip-action-open');
+        openBtn.onclick = () => {
+            if (selectedRectangle) {
+                if (selectedRectangle.is_directory) {
+                    handleCanvasDblClick(event);
+                } else {
+                    invoke('tauri-plugin-opener:open', { path: selectedRectangle.path });
+                }
+            }
+        };
+        actionsEl.appendChild(openBtn);
+
+        const revealBtn = document.createElement('button');
+        revealBtn.textContent = tr('tooltip-action-reveal');
+        revealBtn.onclick = () => {
+            if (selectedRectangle) invoke('reveal_in_explorer', { path: selectedRectangle.path });
+        };
+        actionsEl.appendChild(revealBtn);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = tr('tooltip-action-copy-path');
+        copyBtn.onclick = () => {
+            if (selectedRectangle) navigator.clipboard.writeText(selectedRectangle.path);
+        };
+        actionsEl.appendChild(copyBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'danger';
+        deleteBtn.textContent = tr('tooltip-action-delete');
+        deleteBtn.onclick = async () => {
+            if (selectedRectangle) {
+                // Utiliser la fonction de confirmation native confirm()
+                const confirmed = await confirm(tr('delete-confirm-message', { path: selectedRectangle.path }), {
+                    title: tr('delete-confirm-title'),
+                    kind: 'warning',
+                    okLabel: tr('delete-confirm-ok'),
+                    cancelLabel: tr('delete-confirm-cancel'),
+                });
+                if (confirmed) {
+                    invoke('trash_item', { path: selectedRectangle.path })
+                        .then(() => {
+                            hideTooltipAndDeselect();
+                            zoomIn(currentPathSegments);
+                        })
+                        .catch(e => console.error("Failed to delete item:", e));
+                }
+            }
+        };
+        actionsEl.appendChild(deleteBtn);
+
+        treemapTooltipEl.appendChild(actionsEl);
+
         treemapTooltipEl.style.display = 'block';
+        treemapTooltipEl.style.pointerEvents = 'auto';
+
+        // Calculer les dimensions de l'infobulle pour le positionnement intelligent
+        const tooltipRect = treemapTooltipEl.getBoundingClientRect();
+        const canvasRect = treemapCanvasEl.getBoundingClientRect();
+        let top = event.clientY + 10;
+        let left = event.clientX + 10;
+
+        // Positionnement intelligent vers le haut si ça déborde en bas
+        if (top + tooltipRect.height > window.innerHeight) {
+            top = event.clientY - tooltipRect.height - 10;
+        }
+        // Positionnement intelligent vers la gauche si ça déborde à droite
+        if (left + tooltipRect.width > window.innerWidth) {
+            left = event.clientX - tooltipRect.width - 10;
+        }
+
+        treemapTooltipEl.style.left = `${left - canvasRect.left}px`;
+        treemapTooltipEl.style.top = `${top - canvasRect.top}px`;
     }
 }
 
@@ -283,9 +357,9 @@ function getClickedRectangle(event: MouseEvent): Rectangle | null {
 function updateButtonStates() {
     const zoomOutBtn = document.querySelector("#zoom-out-btn") as HTMLButtonElement | null;
     const resetZoomBtn = document.querySelector("#reset-zoom-btn") as HTMLButtonElement | null;
-    
+
     const isAtRoot = currentPathSegments.length === 0;
-    
+
     if (zoomOutBtn) zoomOutBtn.disabled = isAtRoot;
     if (resetZoomBtn) resetZoomBtn.disabled = isAtRoot;
 }
@@ -348,7 +422,7 @@ window.addEventListener("DOMContentLoaded", async () => {
             i18nMessages = await response.json();
         }
     } catch (e) { console.error("Failed to load translations", e); }
-    
+
     document.querySelector('#path-label')!.textContent = tr('path-label');
     document.querySelector('#browse-btn')!.textContent = tr('browse-btn');
     document.querySelector('#scan-btn')!.textContent = tr('scan-btn');
@@ -366,6 +440,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     } catch (error) {
         console.error("Failed to get default path:", error);
     }
-    
+
     updateButtonStates(); // État initial des boutons
 });

@@ -26,6 +26,8 @@ serde_json = "1"
 libc = "0.2"
 treemap = "0.3.2"
 sys-locale = "0.3"
+trash = "3.0"
+opener = { version = "0.7", features = ["reveal"] }
 
 
 [target.'cfg(windows)'.dependencies]
