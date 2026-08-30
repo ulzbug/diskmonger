@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "diskmonger"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "diskmonger-core",
  "libc",
@@ -939,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "diskmonger-cli"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "clap",
  "crossterm",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "diskmonger-core"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "libc",
  "serde",
