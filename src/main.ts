@@ -192,7 +192,7 @@ async function zoomIn(segments: string[]) {
         const result = await invoke<LayoutResult>("zoom_in", { segments, width, height, showFreeSpace });
         currentRectangles = result.rectangles;
 
-        const currentFullPath = [scanRootPath, ...segments].join('/') || scanRootPath;
+        const currentFullPath = [scanRootPath || "", ...segments].join('/') || scanRootPath || "";
         await appWindow.setTitle(tr('window-title-viewing', {
             path: currentFullPath,
             size: formatBytes(result.total_size),
