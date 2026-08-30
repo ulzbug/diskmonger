@@ -1,9 +1,8 @@
 //! Point d'entrée principal de l'application Tauri et définition des commandes IPC.
 
-mod scanner;
-mod layout;
+use diskmonger_core::{layout, scanner};
 
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager, State, Window};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -35,21 +34,20 @@ fn get_default_scan_path(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /// Lance un scan de système de fichiers dans un thread séparé pour ne pas bloquer l'UI.
-/// Une fois terminé, met le résultat en cache et émet un événement `scan-complete` au frontend.
 #[tauri::command]
-fn scan(path: String, window: tauri::Window, cache: State<ScanCache>) {
-    // Réinitialiser le flag d'annulation avant le scan
+fn scan(path: String, window: Window, cache: State<ScanCache>) {
     scanner::CANCEL_SCAN.store(false, std::sync::atomic::Ordering::SeqCst);
 
     let cache_clone = Arc::clone(&cache.0);
+    let window_clone = window.clone();
     thread::Builder::new()
         .name("scanner-thread".to_string())
-        .stack_size(32 * 1024 * 1024) // 32MB de stack pour les systèmes de fichiers très profonds
+        .stack_size(32 * 1024 * 1024) 
         .spawn(move || {
-            match scanner::scan_directory(&path, &window) {
+            match scanner::scan_directory(&path, Some(&mut move |progress| {
+                let _ = window_clone.emit("scan-progress", progress.clone());
+            })) {
                 Ok((entry, cluster_size)) => {
-                    // Dernière vérification de sécurité : si l'utilisateur a annulé
-                    // PENDANT les dernières millisecondes du scan, on respecte son choix.
                     if scanner::CANCEL_SCAN.load(std::sync::atomic::Ordering::SeqCst) {
                         let _ = window.emit("scan-cancelled", ());
                     } else {
@@ -58,7 +56,6 @@ fn scan(path: String, window: tauri::Window, cache: State<ScanCache>) {
                     }
                 }
                 Err(e) => {
-                    // Si l'erreur est causée par une annulation volontaire
                     if scanner::CANCEL_SCAN.load(std::sync::atomic::Ordering::SeqCst) {
                         let _ = window.emit("scan-cancelled", ());
                     } else {
@@ -71,7 +68,6 @@ fn scan(path: String, window: tauri::Window, cache: State<ScanCache>) {
 }
 
 /// Calcule et retourne le layout pour un chemin de segments donné.
-/// C'est le point d'entrée pour l'affichage initial et pour chaque zoom.
 #[tauri::command]
 fn zoom_in(segments: Vec<String>, width: f64, height: f64, cache: State<ScanCache>, show_free_space: bool) -> Result<layout::LayoutResult, String> {
     let mut cache_lock = cache.0.lock().unwrap();
@@ -108,7 +104,12 @@ fn zoom_in(segments: Vec<String>, width: f64, height: f64, cache: State<ScanCach
             }
         }
         
-        Ok(layout::calculate_layout(current_node, width, height, *cluster_size, &current_path, free_space_bytes))
+        let padding = layout::Padding {
+            header: 12.0,
+            sides: 4.0,
+            bottom: 4.0,
+        };
+        Ok(layout::calculate_layout(current_node, width, height, *cluster_size, &current_path, free_space_bytes, padding, 0.0002))
 
     } else {
         Err("Aucun scan n'a été effectué".to_string())
@@ -136,74 +137,30 @@ fn cancel_scan() {
 /// Retourne l'espace disque libre en octets pour le disque contenant le chemin donné.
 #[tauri::command]
 fn get_free_space(path: String) -> Result<u64, String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        use libc::statvfs;
-        use std::ffi::CString;
-        let c_path = CString::new(path.as_bytes()).map_err(|e| e.to_string())?;
-        let mut stats: statvfs = unsafe { std::mem::zeroed() };
-        if unsafe { statvfs(c_path.as_ptr(), &mut stats) } == 0 {
-            Ok((stats.f_bfree as u64) * (stats.f_frsize as u64))
-        } else {
-            Err("Impossible de récupérer les informations du système de fichiers.".to_string())
-        }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use winapi::um::fileapi::GetDiskFreeSpaceExW;
-        let path_wide: Vec<u16> = std::path::Path::new(&path).as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-        let mut free_bytes = 0;
-        if unsafe { GetDiskFreeSpaceExW(path_wide.as_ptr(), &mut free_bytes, &mut 0, &mut 0) } != 0 {
-            Ok(free_bytes)
-        } else {
-            Err("Impossible de récupérer l'espace disque libre.".to_string())
-        }
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        Ok(0) // Non supporté sur cette plateforme
-    }
+    scanner::get_free_space(path)
 }
 
 #[tauri::command]
 fn is_mount_point(path: String) -> Result<bool, String> {
-    #[cfg(windows)]
-    {
-        use std::path::Path;
-        let p = Path::new(&path);
-        if !p.is_absolute() {
-            return Ok(false);
-        }
-        // Pour un chemin comme "C:\", son parent est lui-même.
-        // Pour "C:\Users", son parent est "C:\".
-        Ok(p.parent().map_or(false, |parent| parent.as_os_str() == p.as_os_str()))
-    }
+    scanner::is_mount_point(path)
+}
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if path == "/" {
-            return Ok(true);
-        }
-
-        let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-        
-        let mut parent_path = std::path::PathBuf::from(&path);
-        if !parent_path.pop() {
-            return Ok(false);
-        }
-       
-        let parent_meta = std::fs::metadata(parent_path).map_err(|e| e.to_string())?;
-
-        Ok(metadata.dev() != parent_meta.dev())
+#[tauri::command]
+fn refresh_subfolder(path: String, cache: State<'_, ScanCache>, window: Window) -> Result<(), String> {
+    let mut cache_lock = cache.0.lock().unwrap();
+    if let Some((root_node, _cluster_size)) = cache_lock.as_mut() {
+        let scan_root_path = root_node.name().to_string();
+        let window_clone = window.clone();
+        scanner::refresh_subfolder_cache(
+            root_node,
+            &path,
+            &scan_root_path,
+            Some(&mut move |progress| {
+                let _ = window_clone.emit("scan-progress", progress.clone());
+            }),
+        )?;
     }
-    
-    #[cfg(not(any(unix, windows)))]
-    {
-        Ok(false)
-    }
+    Ok(())
 }
 
 /// Configure et lance l'application Tauri.
@@ -222,7 +179,8 @@ pub fn run() {
             reveal_in_explorer,
             cancel_scan,
             get_free_space,
-            is_mount_point
+            is_mount_point,
+            refresh_subfolder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

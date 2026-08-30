@@ -301,6 +301,22 @@ async function handleCanvasClick(event: MouseEvent) {
             };
             actionsEl.appendChild(copyBtn);
 
+            if (selectedRectangle.is_directory) {
+                const refreshBtn = document.createElement('button');
+                refreshBtn.textContent = tr('tooltip-action-refresh');
+                refreshBtn.onclick = async () => {
+                    if (selectedRectangle) {
+                        invoke('refresh_subfolder', { path: selectedRectangle.path })
+                            .then(() => {
+                                hideTooltipAndDeselect();
+                                zoomIn(currentPathSegments);
+                            })
+                            .catch(e => console.error("Failed to refresh folder:", e));
+                    }
+                };
+                actionsEl.appendChild(refreshBtn);
+            }
+
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'danger';
             deleteBtn.textContent = tr('tooltip-action-delete');

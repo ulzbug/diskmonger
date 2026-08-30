@@ -21,6 +21,14 @@ pub struct LayoutResult {
     pub total_size: u64,
 }
 
+/// Définit le "padding" à appliquer à l'intérieur d'un rectangle de dossier
+/// avant de dessiner ses enfants, pour laisser de la place à un en-tête.
+pub struct Padding {
+    pub header: f64,
+    pub sides: f64,
+    pub bottom: f64,
+}
+
 /// Structure interne utilisée par la bibliothèque `treemap` pour mapper les données.
 struct LayoutEntry<'a> {
     node: &'a mut FsNode,
@@ -34,7 +42,7 @@ impl<'a> Mappable for LayoutEntry<'a> {
 }
 
 /// Seuil de pixels en dessous duquel un rectangle n'est pas dessiné.
-const MIN_PIXEL_THRESHOLD: f64 = 5.0;
+const MIN_PIXEL_THRESHOLD: f64 = 1.0;
 
 /// Génère récursivement la liste plate de tous les rectangles visibles pour une vue donnée.
 ///
@@ -54,6 +62,7 @@ fn generate_treemap_rects(
     base_path: &Path,
     threshold: u32,
     cluster_size: u64,
+    padding: &Padding,
 ) {
     if nodes.is_empty() || bounds.w < 1.0 || bounds.h < 1.0 { return; }
 
@@ -102,23 +111,21 @@ fn generate_treemap_rects(
             is_directory: entry.node.is_directory(),
             size: entry.node.size_in_clusters() as u64 * cluster_size,
         });
-        
-        // Si c'est un dossier avec des enfants, on descend récursivement.
+
         if let FsNode::Dir(dir) = &mut entry.node {
             if !dir.children.is_empty() {
-                const HEADER_HEIGHT: f64 = 12.0;
-                const SIDE_PADDING: f64 = 4.0;
-                const BOTTOM_PADDING: f64 = 4.0;
+                let header_total = padding.header + padding.bottom;
+                let sides_total = padding.sides * 2.0;
 
-                if entry.bounds.w > (SIDE_PADDING * 2.0) && entry.bounds.h > (HEADER_HEIGHT + BOTTOM_PADDING) {
-                    let inner_bounds = Rect::from_points(
-                        entry.bounds.x + SIDE_PADDING,
-                        entry.bounds.y + HEADER_HEIGHT,
-                        entry.bounds.w - (SIDE_PADDING * 2.0),
-                        entry.bounds.h - HEADER_HEIGHT - BOTTOM_PADDING,
-                    );
+                if entry.bounds.w > sides_total && entry.bounds.h > header_total {
+                    let inner_bounds = Rect {
+                        x: entry.bounds.x + padding.sides,
+                        y: entry.bounds.y + padding.header,
+                        w: entry.bounds.w - sides_total,
+                        h: entry.bounds.h - header_total,
+                    };
                     if inner_bounds.w > 1.0 && inner_bounds.h > 1.0 {
-                        generate_treemap_rects(rectangles, &mut dir.children, inner_bounds, depth + 1, &item_path, threshold, cluster_size);
+                        generate_treemap_rects(rectangles, &mut dir.children, inner_bounds, depth + 1, &item_path, threshold, cluster_size, padding);
                     }
                 }
             }
@@ -128,11 +135,20 @@ fn generate_treemap_rects(
 
 /// Point d'entrée principal pour calculer le layout d'une vue.
 /// Calcule le seuil, les statistiques, et lance la génération récursive des rectangles.
-pub fn calculate_layout(root: &mut FsNode, width: f64, height: f64, cluster_size: u64, view_path: &std::path::Path, free_space_bytes: Option<u64>) -> LayoutResult {
+pub fn calculate_layout(
+    root: &mut FsNode,
+    width: f64,
+    height: f64,
+    cluster_size: u64,
+    view_path: &std::path::Path,
+    free_space_bytes: Option<u64>,
+    padding: Padding,
+    threshold_ratio: f64, // Nouveau paramètre
+) -> LayoutResult {
     let mut rectangles = Vec::new();
     let total_items = root.count_items().saturating_sub(1);
     let original_total_size = root.size_in_clusters() as u64 * cluster_size;
-    
+
     if let FsNode::Dir(dir) = root {
         let mut children_with_free_space = dir.children.clone();
 
@@ -147,12 +163,11 @@ pub fn calculate_layout(root: &mut FsNode, width: f64, height: f64, cluster_size
         }
 
         let initial_bounds = Rect::from_points(0.0, 0.0, width, height);
-
         let layout_total_size_in_clusters: u32 = children_with_free_space.iter().map(|n| n.size_in_clusters()).sum();
-        let threshold = (layout_total_size_in_clusters as f64 * 0.0002) as u32;
-        
-        generate_treemap_rects(&mut rectangles, &mut children_with_free_space, initial_bounds, 0, view_path, threshold, cluster_size);
-        
+        let threshold = (layout_total_size_in_clusters as f64 * threshold_ratio) as u32;
+
+        generate_treemap_rects(&mut rectangles, &mut children_with_free_space, initial_bounds, 0, view_path, threshold, cluster_size, &padding);
+
         LayoutResult { rectangles, total_items, total_size: original_total_size }
     } else {
         // Cas d'un fichier à la racine (ne devrait pas arriver en pratique pour une vue).

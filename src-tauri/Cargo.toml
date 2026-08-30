@@ -18,13 +18,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+diskmonger-core = { path = "../diskmonger-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
-treemap = "0.3.2"
 sys-locale = "0.3"
 trash = "3.0"
 opener = { version = "0.7", features = ["reveal"] }
