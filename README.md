@@ -13,6 +13,7 @@ The original C++ MFC source code for SpaceMonger is available on GitHub: [**sean
 ## Features (At a Glance)
 
 *   **At-a-Glance Visualization:** See exactly which folders and files are eating up your space using a beautifully balanced, squarified treemap layout.
+*   **Arbitrary Folder Scanning:** Scan any directory, folder, or sub-folder on your system—unlike the original SpaceMonger, which strictly limited you to scanning entire disk drives and partitions!
 *   **Real-time Progress:** Stay informed of the progress with a live display of currently scanned files.
 *   **Accurate Size Metrics:** Shows the **real space allocated on disk** (based on filesystem clusters), rather than just the logical file sizes.
 *   **Intelligent Grouping:** Automatically merges tiny files into a single `[Other Files]` block to keep your treemap clean, readable, and focused on large space-wasters.
