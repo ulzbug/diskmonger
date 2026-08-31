@@ -10,4 +10,4 @@ treemap = "0.3.2"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["std", "fileapi"] }
+winapi = { version = "0.3", features = ["std", "fileapi", "winnt", "minwindef"] }
