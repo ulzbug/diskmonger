@@ -1,105 +1,109 @@
-# DiskMonger 🚀
+# DiskMonger
 
-DiskMonger is a modern, fast, and cross-platform disk space visualizer, heavily inspired by the classic Windows utility **SpaceMonger v1.4.0** by Sean B. Palmer.
+DiskMonger is a modern, blazing-fast, and cross-platform disk space visualizer. It is a complete, modern rewrite inspired by the classic Windows utility **SpaceMonger v1.4.0** by Sean B. Palmer, designed to let you understand your disk space usage **at a single glance**.
 
-This project is a complete rewrite from the ground up, built with a modern and performant stack:
-*   **[Tauri v2](https://tauri.app/)** for the application framework.
-*   **[Rust](https://www.rust-lang.org/)** for the powerful and safe backend.
-*   **[TypeScript](https://www.typescriptlang.org/)** and **HTML5 Canvas** for the fluid and responsive user interface.
+The project comes in two flavors:
+1.  **DiskMonger Desktop**: A modern graphical app built with Tauri v2, HTML5 Canvas, and Rust.
+2.  **DiskMonger CLI**: A lightweight, interactive terminal utility (`diskmonger-cli`) built with Rust and Ratatui.
 
-The original C++ MFC source code for SpaceMonger is available on GitHub in the official repository : [**seanofw/spacemonger1**](https://github.com/seanofw/spacemonger1).
-
----
-
-## Features
-
-*   **High-Performance Treemap:** Visualizes disk space using a "Squarified Treemap" algorithm for a balanced and readable layout, rendered on a hardware-accelerated HTML5 Canvas.
-*   **Asynchronous Scanning:** The UI remains 100% responsive during scans, even on massive drives, thanks to a dedicated Rust background thread.
-*   **Real-time Progress:** The window title and a message on the canvas keep you informed of the folder currently being scanned.
-*   **Accurate Size Calculation:** Reports the **true size on disk** (allocated space based on filesystem clusters), not just the logical file size.
-*   **Intelligent Grouping:** Small files within a directory are automatically grouped into a `[Autres fichiers]` block to keep the display clean and readable.
-*   **Interactive Navigation:**
-    *   **Double-click** to zoom into a directory.
-    *   **Single-click** to select an item and display a detailed tooltip with its name, full path, size, and type.
-    *   "Zoom Out" button to logically navigate to the parent directory.
-    *   "Reset" button to instantly return to the root of the scan.
-*   **Modern UI:** A clean, compact, and dark-themed UI that gets out of your way.
+The original C++ MFC source code for SpaceMonger is available on GitHub: [**seanofw/spacemonger1**](https://github.com/seanofw/spacemonger1).
 
 ---
 
-## Platform Compatibility
+## Features (At a Glance)
 
-DiskMonger is built with Tauri v2 and is fully cross-platform. It can be compiled and run on:
-*   **Windows** 10, 11
-*   **macOS**
-*   **Linux** (tested on Ubuntu/Debian-based distributions)
+*   **At-a-Glance Visualization:** See exactly which folders and files are eating up your space using a beautifully balanced, squarified treemap layout.
+*   **Blazing-Fast and Responsive:** Start scanning and navigating instantly. The interface remains 100% fluid and responsive even when analyzing massive, multi-terabyte drives.
+*   **Real-time Progress:** Stay informed of the progress with a live display of currently scanned files.
+*   **Accurate Size Metrics:** Shows the **real space allocated on disk** (based on filesystem clusters), rather than just the logical file sizes.
+*   **Intelligent Grouping:** Automatically merges tiny files into a single `[Other Files]` block to keep your treemap clean, readable, and focused on large space-wasters.
+*   **Interactive Navigation & Actions:**
+    *   **Zoom in** on a directory to explore its sub-folders recursively, and **Zoom out** or **Reset** to return instantly.
+    *   **Perform direct actions** right from the view: Open folders, copy absolute paths, reveal in your system's explorer, or send files/directories straight to the Trash.
 
 ---
 
-## Getting Started
+## DiskMonger CLI (`diskmonger-cli`)
 
-### Prerequisites
+For terminal lovers, system administrators, or SSH sessions, `diskmonger-cli` packs the full power of DiskMonger directly into your terminal!
 
-You must have the Tauri v2 prerequisites installed for your specific operating system.
+### Features
+*   **Ultra-lightweight & Portable:** A single, self-contained executable binary. No installer or dependencies required—just copy it and run.
+*   **Mnemonic-driven Navigation:** Keyboard shortcuts adapt dynamically to your language. Indicators like **<u>Z</u>oomer** or **<u>Q</u>uit** have their shortcut letters underlined right on screen.
+*   **Interactive Arrow Controls:**
+    *   `Tab` / `◄` / `►`: Move the focus between sibling elements at the exact same depth.
+    *   `▼`: Drill down into the first visible child of a folder.
+    *   `▲`: Go up to the parent directory (with automatic zoom out).
+    *   `Z` / `Enter`: Zoom into the selected directory.
+    *   `D`: Zoom out of the current view.
+    *   `R`: Reset zoom to the topmost root.
+    *   `L`: Toggle partition free-space visibility.
+*   **Instant Cancellation:** Press `Esc` at any moment to immediately abort a scan and exit cleanly.
 
-#### Linux (Debian/Ubuntu/Mint)
-Install compilation tools, SSL, and WebKitGTK headers:
-```bash
-sudo apt update && sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-```
+---
 
-#### Windows
-1.  Install the **Microsoft C++ Build Tools** from the [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-studio-build-tools/).
-2.  Install **Rust** via `rustup-init.exe` from the official [Rust website](https://www.rust-lang.org/tools/install).
-3.  Install **Node.js** from the official [Node.js website](https://nodejs.org/).
+## upported Languages (24)
 
-#### Install Rust (on Linux/macOS)
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-```
+DiskMonger is localized in 24 major European languages:
+*German (de), English (en), Bulgarian (bg), Croatian (hr), Danish (da), Spanish (es), Estonian (et), Finnish (fi), French (fr), Greek (el), Hungarian (hu), Irish (ga), Italian (it), Latvian (lv), Lithuanian (lt), Maltese (mt), Dutch (nl), Polish (pl), Portuguese (pt), Romanian (ro), Slovak (sk), Slovenian (sl), Swedish (sv), and Czech (cs).*
 
-### Installation & Launching
+---
 
-First, navigate to the new application's directory:
+## Cmpilation
+
+First, navigate to the project directory:
 ```bash
 cd diskmonger/
 ```
 
-Then, install the JavaScript dependencies:
+### 1. Launching DiskMonger Desktop (Tauri)
+
+#### Prerequisites
+Ensure you have the Tauri prerequisites installed on your system (Node.js, Rust, and standard compilation tools).
+
+*   **Linux (Debian/Ubuntu)**:
+    ```bash
+    sudo apt update && sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+    ```
+*   **Windows**: Install **Microsoft C++ Build Tools**, **Rust**, and **Node.js** from their official sites.
+
+#### Install and Run
+Install Javascript dependencies:
 ```bash
 npm install
 ```
 
-To run the application in **Development Mode** (with hot-reload):
+To run in development mode:
 ```bash
 npm run tauri dev
 ```
 
+To compile and pack into a production installer (such as a `.deb` package on Linux or `.msi` on Windows):
+```bash
+# On Linux, make sure to add cargo to your PATH if needed:
+PATH=$PATH:$HOME/.cargo/bin npm run tauri build
+```
+*The packaged bundles will be generated under `diskmonger/target/release/bundle/`.*
+
 ---
 
-## Compiling for Release
+### 2. Launching and Compiling DiskMonger CLI
 
-To build the final, optimized, and distributable application:
+`diskmonger-cli` is compiled purely in Rust.
 
+#### Run in Development Mode
+To scan a path instantly:
 ```bash
-cd diskmonger/
-npm run tauri build
+cargo run --manifest-path diskmonger-cli/Cargo.toml -- -p /path/to/scan
 ```
 
-This command will produce a small, native installer/executable for your platform in the `diskmonger/src-tauri/target/release/bundle/` directory.
+#### Compile Standalone Binary (Linux)
+To build a highly optimized standalone binary for your system:
+```bash
+cargo build --release --manifest-path diskmonger-cli/Cargo.toml
+```
+*The standalone binary is generated at `target/release/diskmonger-cli`.*
 
-### Creating a Release on GitHub
-
-1.  Commit your final code to Git.
-2.  Create a tag for your release version (e.g., `git tag v1.0.0`).
-3.  Push the tag to GitHub (`git push origin v1.0.0`).
-4.  On the GitHub repository page, go to "Releases" and click "Draft a new release".
-5.  Select the tag you just pushed.
-6.  **Upload the binaries** (`.exe`, `.msi`, `.deb`, `.AppImage`) from the `bundle` directory as release assets.
-7.  Publish the release.
-
----
 
 ## License
 
