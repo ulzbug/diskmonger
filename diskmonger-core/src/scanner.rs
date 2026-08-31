@@ -253,11 +253,17 @@ pub fn get_free_space(path: String) -> Result<u64, String> {
     #[cfg(windows)]
     {
         use winapi::um::fileapi::GetDiskFreeSpaceExW;
+        use winapi::um::winnt::ULARGE_INTEGER;
         use std::os::windows::ffi::OsStrExt;
+        
         let path_wide: Vec<u16> = std::path::Path::new(&path).as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-        let mut free_bytes = 0;
-        if unsafe { GetDiskFreeSpaceExW(path_wide.as_ptr(), &mut free_bytes, &mut 0, &mut 0) } != 0 {
-            Ok(free_bytes)
+        
+        let mut free_bytes_to_caller = unsafe { std::mem::zeroed::<ULARGE_INTEGER>() };
+        let mut total_bytes = unsafe { std::mem::zeroed::<ULARGE_INTEGER>() };
+        let mut total_free_bytes = unsafe { std::mem::zeroed::<ULARGE_INTEGER>() };
+        
+        if unsafe { GetDiskFreeSpaceExW(path_wide.as_ptr(), &mut free_bytes_to_caller, &mut total_bytes, &mut total_free_bytes) } != 0 {
+            Ok(unsafe { *free_bytes_to_caller.QuadPart() })
         } else {
             Err("Impossible de récupérer l'espace disque libre.".to_string())
         }
