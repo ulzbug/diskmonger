@@ -13,13 +13,13 @@ The original C++ MFC source code for SpaceMonger is available on GitHub: [**sean
 ## Features (At a Glance)
 
 *   **At-a-Glance Visualization:** See exactly which folders and files are eating up your space using a beautifully balanced, squarified treemap layout.
-*   **Blazing-Fast and Responsive:** Start scanning and navigating instantly. The interface remains 100% fluid and responsive even when analyzing massive, multi-terabyte drives.
 *   **Real-time Progress:** Stay informed of the progress with a live display of currently scanned files.
 *   **Accurate Size Metrics:** Shows the **real space allocated on disk** (based on filesystem clusters), rather than just the logical file sizes.
 *   **Intelligent Grouping:** Automatically merges tiny files into a single `[Other Files]` block to keep your treemap clean, readable, and focused on large space-wasters.
 *   **Interactive Navigation & Actions:**
     *   **Zoom in** on a directory to explore its sub-folders recursively, and **Zoom out** or **Reset** to return instantly.
     *   **Perform direct actions** right from the view: Open folders, copy absolute paths, reveal in your system's explorer, or send files/directories straight to the Trash.
+	*   **Reload** only a subdirectory
 
 ---
 
@@ -42,14 +42,14 @@ For terminal lovers, system administrators, or SSH sessions, `diskmonger-cli` pa
 
 ---
 
-## upported Languages (24)
+## Supported Languages (24)
 
 DiskMonger is localized in 24 major European languages:
 *German (de), English (en), Bulgarian (bg), Croatian (hr), Danish (da), Spanish (es), Estonian (et), Finnish (fi), French (fr), Greek (el), Hungarian (hu), Irish (ga), Italian (it), Latvian (lv), Lithuanian (lt), Maltese (mt), Dutch (nl), Polish (pl), Portuguese (pt), Romanian (ro), Slovak (sk), Slovenian (sl), Swedish (sv), and Czech (cs).*
 
 ---
 
-## Cmpilation
+## Compilation
 
 First, navigate to the project directory:
 ```bash
