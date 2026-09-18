@@ -150,6 +150,28 @@ async function showScanMessage(textKey: string, subtext: string = "", files: num
     }
 }
 
+/** Affiche le message de bienvenue et les étapes d'aide au centre du canvas. */
+function showWelcomeMessage() {
+    if (!treemapCtx || !treemapCanvasEl) return;
+    const { width, height } = treemapCanvasEl.getBoundingClientRect();
+    treemapCanvasEl.width = width;
+    treemapCanvasEl.height = height;
+    treemapCtx.clearRect(0, 0, width, height);
+
+    // Titre de bienvenue (blanc et gras)
+    treemapCtx.fillStyle = '#FFFFFF';
+    treemapCtx.font = "bold 20px sans-serif";
+    treemapCtx.fillText(tr('welcome-title'), 50, 60);
+
+    // Couleur des étapes d'aide (gris clair et lisible)
+    treemapCtx.fillStyle = '#CCCCCC';
+    treemapCtx.font = "14px sans-serif";
+    treemapCtx.fillText(tr('welcome-step-1'), 50, 110);
+    treemapCtx.fillText(tr('welcome-step-2'), 50, 145);
+    treemapCtx.fillText(tr('welcome-step-3'), 50, 180);
+    treemapCtx.fillText(tr('welcome-step-4'), 50, 215);
+}
+
 /** Cache l'infobulle, désélectionne le rectangle et redessine le canvas. */
 function hideTooltipAndDeselect() {
     if (treemapTooltipEl) treemapTooltipEl.style.display = 'none';
@@ -470,6 +492,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener('resize', () => {
         if (scanRootPath && currentRectangles.length > 0) {
             zoomIn(currentPathSegments);
+        } else {
+            showWelcomeMessage();
         }
     });
 
@@ -495,10 +519,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         await appWindow.setTitle(tr('window-title-default'));
 
         if (treemapCanvasEl && treemapCtx) {
-            const { width, height } = treemapCanvasEl.getBoundingClientRect();
-            treemapCanvasEl.width = width;
-            treemapCanvasEl.height = height;
-            treemapCtx.clearRect(0, 0, width, height);
+            showWelcomeMessage();
         }
     });
     listen('scan-error', async (event) => {
@@ -556,4 +577,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     updateButtonStates();
+
+    // Dessine le message de bienvenue d'aide initial sur le canvas
+    setTimeout(() => {
+        showWelcomeMessage();
+    }, 100);
 });
